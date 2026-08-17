@@ -12,6 +12,8 @@ interface BackendAdminEnrollment {
   joined_date: string;
   status: string;
   maturity_date: string;
+  months_paid: number;
+  next_due_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +27,8 @@ interface BackendCustomerEnrollment {
   joined_date: string;
   status: string;
   maturity_date: string;
+  months_paid: number;
+  next_due_date: string | null;
 }
 
 /* COMPLETED keeps its existing maturity meaning. CLOSED means the customer
@@ -47,6 +51,8 @@ export interface AdminEnrollment {
   joinedDate: string;
   status: EnrollmentStatus;
   maturityDate: string;
+  monthsPaid: number;
+  nextDueDate: string | null;
 }
 
 export interface CustomerEnrollment {
@@ -57,6 +63,8 @@ export interface CustomerEnrollment {
   joinedDate: string;
   status: EnrollmentStatus;
   maturityDate: string;
+  monthsPaid: number;
+  nextDueDate: string | null;
 }
 
 function mapAdminEnrollment(raw: BackendAdminEnrollment): AdminEnrollment {
@@ -70,6 +78,8 @@ function mapAdminEnrollment(raw: BackendAdminEnrollment): AdminEnrollment {
     joinedDate: raw.joined_date,
     status: raw.status as EnrollmentStatus,
     maturityDate: raw.maturity_date,
+    monthsPaid: raw.months_paid ?? 0,
+    nextDueDate: raw.next_due_date,
   };
 }
 
@@ -82,6 +92,8 @@ function mapCustomerEnrollment(raw: BackendCustomerEnrollment): CustomerEnrollme
     joinedDate: raw.joined_date,
     status: raw.status as EnrollmentStatus,
     maturityDate: raw.maturity_date,
+    monthsPaid: raw.months_paid ?? 0,
+    nextDueDate: raw.next_due_date,
   };
 }
 

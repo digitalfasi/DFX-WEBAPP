@@ -72,6 +72,10 @@ export interface ManualPaymentFormData {
   paymentMethod: PaymentMethod;
   paymentStatus?: PaymentStatus;
   remarks?: string;
+  /** Phase 3 — installments this one transaction covers (1 / 3 / 6). */
+  monthsCovered?: 1 | 3 | 6;
+  /** Optional idempotency key; a retry with the same key returns the same payment. */
+  idempotencyKey?: string;
 }
 
 function mapAdminPayment(raw: BackendAdminPayment): AdminPayment {
@@ -130,6 +134,8 @@ export const paymentService = {
         payment_method: data.paymentMethod,
         ...(data.paymentStatus !== undefined && { payment_status: data.paymentStatus }),
         ...(data.remarks !== undefined && { remarks: data.remarks }),
+        ...(data.monthsCovered !== undefined && { months_covered: data.monthsCovered }),
+        ...(data.idempotencyKey !== undefined && { idempotency_key: data.idempotencyKey }),
       },
       { auth: true }
     );

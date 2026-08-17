@@ -308,6 +308,23 @@ export default function AdminPaymentsPage() {
           </div>
 
           <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Advance (months)</label>
+            <Select
+              value={String(form.monthsCovered ?? 1)}
+              onChange={(e) => setForm((f) => ({ ...f, monthsCovered: Number(e.target.value) as 1 | 3 | 6 }))}
+            >
+              <option value="1">1 month (regular)</option>
+              <option value="3">3 months (advance)</option>
+              <option value="6">6 months (advance)</option>
+            </Select>
+            {(form.monthsCovered ?? 1) > 1 && (
+              <p className="text-[11px] text-slate-500">
+                Advance: amount must equal monthly × {form.monthsCovered}. One transaction, {form.monthsCovered} installments covered.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Remarks</label>
             <Input
               value={form.remarks || ''}
