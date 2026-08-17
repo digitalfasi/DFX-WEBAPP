@@ -75,7 +75,7 @@ export interface CustomerBanner {
 
 export interface PromotionFormData {
   bannerType?: BannerType;
-  title: string;
+  title?: string;
   subtitle?: string;
   description?: string;
   imageUrl?: string;

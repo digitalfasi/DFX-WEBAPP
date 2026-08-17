@@ -155,7 +155,7 @@ export default function MarketingPage() {
       setFieldErrors({ imageUrl: 'An Image-Only banner requires an image.' });
       return;
     }
-    if (!isImageOnly && !form.title.trim()) {
+    if (!isImageOnly && !form.title?.trim()) {
       setFieldErrors({ title: 'A Standard banner requires a title.' });
       return;
     }
