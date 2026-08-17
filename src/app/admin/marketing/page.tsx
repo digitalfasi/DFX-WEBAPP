@@ -160,17 +160,41 @@ export default function MarketingPage() {
       return;
     }
     setSaving(true);
+    // Tracks the promotion ID created in the IMAGE_ONLY staged-create path so
+    // we can delete the inactive stub if the upload step fails.
+    let stagedPromoId: string | null = null;
     try {
       let promoId = editingId;
       if (editingId) {
+        // Edit path — existing promotion already has a valid image_url.
+        // If the admin is replacing the image, the old image_url stays in DB
+        // until the upload succeeds, so the promotion remains valid throughout.
         await promotionService.updatePromotion(editingId, form);
         setToast({ message: 'Promotion updated successfully', type: 'success' });
+      } else if (isImageOnly && pendingImage) {
+        // IMAGE_ONLY staged create:
+        //   1. Create inactive (no image_url yet — backend allows this for is_active=false).
+        //   2. Upload the local file → sets image_url on the record.
+        //   3. Activate with the admin's intended is_active value.
+        // If step 2 throws the catch block deletes the inactive stub so the
+        // admin list stays clean.  Step 3 is never reached on upload failure,
+        // so an IMAGE_ONLY promotion is never activated without a real image_url.
+        const intendedIsActive = form.isActive ?? true;
+        const created = await promotionService.createPromotion({ ...form, isActive: false });
+        promoId = created.id;
+        stagedPromoId = promoId; // arm cleanup
+        await promotionService.uploadPromotionImage(promoId, pendingImage);
+        await promotionService.updatePromotion(promoId, { isActive: intendedIsActive });
+        stagedPromoId = null; // disarm — flow succeeded
+        setToast({ message: 'Promotion created successfully', type: 'success' });
       } else {
+        // STANDARD create (or IMAGE_ONLY edit/create with an existing imageUrl).
         const created = await promotionService.createPromotion(form);
         promoId = created.id;
         setToast({ message: 'Promotion created successfully', type: 'success' });
       }
-      if (pendingImage && promoId) {
+      if (pendingImage && promoId && editingId) {
+        // Edit path: upload replacement image after update.
         await promotionService.uploadPromotionImage(promoId, pendingImage);
       }
       setPendingImage(null);
@@ -178,6 +202,13 @@ export default function MarketingPage() {
       setDialogOpen(false);
       await loadPromotions();
     } catch (err) {
+      // If the IMAGE_ONLY staged create succeeded but the upload/activation
+      // failed, delete the inactive stub (best-effort) so it does not pollute
+      // the admin list.  Customers never see it because is_active is false.
+      if (stagedPromoId) {
+        promotionService.deletePromotion(stagedPromoId).catch(() => {/* best-effort */});
+        stagedPromoId = null;
+      }
       applyApiError(err, 'Could not save promotion. Please try again.');
       setToast({ message: 'Could not save promotion', type: 'error' });
     } finally {
