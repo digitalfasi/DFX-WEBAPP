@@ -31,7 +31,10 @@ import {
   TopCustomersReport,
   EnrollmentSummary,
   ReportRangeParams,
+  TopProductMetric,
+  TopProductsResult,
 } from '@/services/reportService';
+import { billingService } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { triggerExportDownload } from '@/lib/exportDownload';
 
@@ -474,9 +477,126 @@ export default function AdminReportsPage() {
         </>
       )}
 
+      <TopProductsCard />
+
       {toastMsg && (
         <Toast message={toastMsg} onClose={() => setToastMsg(null)} />
       )}
     </div>
+  );
+}
+
+const TP_METRICS: { key: TopProductMetric; label: string }[] = [
+  { key: 'revenue', label: 'Revenue' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'weight', label: 'Gold Weight' },
+  { key: 'profit', label: 'Profit' },
+];
+
+function todayIso(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function TopProductsCard() {
+  const [metric, setMetric] = useState<TopProductMetric>('revenue');
+  const [dateFrom, setDateFrom] = useState(todayIso(-30));
+  const [dateTo, setDateTo] = useState(todayIso(0));
+  const [result, setResult] = useState<TopProductsResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setErr('');
+    try {
+      setResult(await reportService.getTopProducts({ dateFrom, dateTo, metric, limit: 10 }));
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not load top products.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metric]);
+
+  const runCaExport = async () => {
+    setExporting(true);
+    setErr('');
+    try {
+      await billingService.downloadCaExport({ dateFrom, dateTo });
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not export.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <Card className="bg-white border-slate-200 shadow-xs">
+      <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <CardTitle>Top Products</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1" />
+          <Button size="sm" variant="outline" onClick={load} isLoading={loading}>Apply</Button>
+          <Button size="sm" variant="outline" onClick={runCaExport} isLoading={exporting}>
+            <Download className="w-3.5 h-3.5 mr-1" /> CA Export
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          {TP_METRICS.map((m) => (
+            <button key={m.key} onClick={() => setMetric(m.key)}
+              className={'px-3 py-1 rounded-lg text-xs font-bold transition-colors ' +
+                (metric === m.key ? 'bg-[#0B0E23] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {err && <p className="text-xs font-medium text-red-700">{err}</p>}
+        {loading && <Skeleton className="h-40 w-full" />}
+        {!loading && result && result.items.length === 0 && (
+          <p className="text-xs text-slate-400">No sales in this period.</p>
+        )}
+        {!loading && result && result.items.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                  <th className="p-3">Product</th>
+                  <th className="p-3 text-right">Units</th>
+                  <th className="p-3 text-right">Revenue</th>
+                  <th className="p-3 text-right">Gold Wt (g)</th>
+                  {result.profit_visible && <th className="p-3 text-right">Profit</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {result.items.map((it) => (
+                  <tr key={it.product_code} className="hover:bg-slate-50/80">
+                    <td className="p-3 font-bold text-[#0B0E23]">{it.product_name}
+                      <span className="block text-[10px] text-slate-400 font-mono">{it.product_code}</span></td>
+                    <td className="p-3 text-right font-mono">{it.units}</td>
+                    <td className="p-3 text-right font-mono">₹{it.revenue.toLocaleString()}</td>
+                    <td className="p-3 text-right font-mono">{it.gold_weight_grams}</td>
+                    {result.profit_visible && (
+                      <td className="p-3 text-right font-mono">{it.profit != null ? `₹${it.profit.toLocaleString()}` : '—'}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1265,6 +1265,18 @@ export const billingService = {
     await downloadBlob(`/billing/sales/export.xlsx?${query.toString()}`, 'sales-history.xlsx');
   },
 
+  /* CA / accounting export — accounting fields only. Same raw-blob path. */
+  async downloadCaExport(params: { period?: SalesHistoryPeriod; dateFrom?: string; dateTo?: string }): Promise<void> {
+    const query = new URLSearchParams();
+    if (params.dateFrom && params.dateTo) {
+      query.set('date_from', params.dateFrom);
+      query.set('date_to', params.dateTo);
+    } else if (params.period) {
+      query.set('period', params.period);
+    }
+    await downloadBlob(`/billing/sales/ca-export.xlsx?${query.toString()}`, 'ca-export.xlsx');
+  },
+
   /* Sale return / cancellation. The backend is the only authority on what may
    * be refunded and on the resulting statuses; this client never computes a
    * refund figure of its own. */

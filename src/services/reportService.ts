@@ -399,4 +399,42 @@ export const reportService = {
     );
     return mapExportFile(res.data.export);
   },
+
+  /** GET /api/v1/reports/top-products (Admin) — ranked products over a period. */
+  async getTopProducts(params: {
+    dateFrom: string;
+    dateTo: string;
+    metric?: 'revenue' | 'quantity' | 'weight' | 'profit';
+    limit?: number;
+  }): Promise<TopProductsResult> {
+    const res = await apiClient.get<TopProductsResult>(
+      `/reports/top-products${buildQuery({
+        date_from: params.dateFrom,
+        date_to: params.dateTo,
+        metric: params.metric ?? 'revenue',
+        limit: params.limit ?? 10,
+      })}`,
+      { auth: true }
+    );
+    return res.data;
+  },
 };
+
+export type TopProductMetric = 'revenue' | 'quantity' | 'weight' | 'profit';
+
+export interface TopProductItem {
+  product_code: string;
+  product_name: string;
+  units: number;
+  revenue: number;
+  gold_weight_grams: number;
+  profit: number | null;
+}
+
+export interface TopProductsResult {
+  metric: TopProductMetric;
+  date_from: string;
+  date_to: string;
+  profit_visible: boolean;
+  items: TopProductItem[];
+}
