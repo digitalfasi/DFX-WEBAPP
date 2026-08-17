@@ -52,6 +52,7 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'customers', icon: 'Users', label: 'Customers', path: '/admin/customers', ready: true, staffModule: 'customers', group: null },
   { key: 'kyc', icon: 'ShieldCheck', label: 'KYC Review', path: '/admin/kyc', ready: true, staffModule: 'kyc', group: null },
   { key: 'schemes', icon: 'Coins', label: 'Schemes', path: '/admin/schemes', ready: true, staffModule: 'schemes', group: null },
+  { key: 'scheme-requests', icon: 'ClipboardList', label: 'Scheme Requests', path: '/admin/scheme-requests', ready: true, staffModule: 'enrollments', group: null },
   { key: 'enrollments', icon: 'UserPlus', label: 'Enrollments', path: '/admin/enrollments', ready: true, staffModule: 'enrollments', group: null },
   { key: 'payments', icon: 'CreditCard', label: 'Payments', path: '/admin/payments', ready: true, staffModule: 'payments', group: null },
   // Billing System — Inventory (Product Master) + Selling + Sales History.

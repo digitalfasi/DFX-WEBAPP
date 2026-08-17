@@ -28,6 +28,7 @@ import {
   Boxes,
   Calculator,
   Receipt,
+  ClipboardList,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -56,6 +57,7 @@ const iconMap: Record<string, React.ElementType> = {
   Boxes,
   Calculator,
   Receipt,
+  ClipboardList,
 };
 
 type AdminNavItem = typeof ADMIN_NAV_ITEMS[number];

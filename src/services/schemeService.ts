@@ -93,6 +93,69 @@ function toBackendPayload(data: Partial<SchemeFormData>) {
   };
 }
 
+// ─── Phase 2 — Scheme Request lifecycle ───
+
+export type SchemeRequestStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED';
+
+interface BackendSchemeRequest {
+  id: string;
+  customer_id: string;
+  customer_name: string | null;
+  customer_code: string | null;
+  scheme_id: string;
+  scheme_name: string | null;
+  status: string;
+  kyc_status_at_request: string | null;
+  kyc_status_current: string | null;
+  enrollment_id: string | null;
+  enrollment_number: string | null;
+  rejection_reason: string | null;
+  requested_by: string | null;
+  approved_by: string | null;
+  rejected_by: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  created_at: string | null;
+}
+
+export interface SchemeRequest {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerCode: string;
+  schemeId: string;
+  schemeName: string;
+  status: SchemeRequestStatus;
+  kycStatusAtRequest: string;
+  kycStatusCurrent: string;
+  enrollmentId: string;
+  enrollmentNumber: string;
+  rejectionReason: string;
+  approvedAt: string;
+  rejectedAt: string;
+  createdAt: string;
+}
+
+function mapSchemeRequest(raw: BackendSchemeRequest): SchemeRequest {
+  return {
+    id: raw.id,
+    customerId: raw.customer_id,
+    customerName: raw.customer_name ?? '',
+    customerCode: raw.customer_code ?? '',
+    schemeId: raw.scheme_id,
+    schemeName: raw.scheme_name ?? '',
+    status: (raw.status as SchemeRequestStatus),
+    kycStatusAtRequest: raw.kyc_status_at_request ?? '',
+    kycStatusCurrent: raw.kyc_status_current ?? '',
+    enrollmentId: raw.enrollment_id ?? '',
+    enrollmentNumber: raw.enrollment_number ?? '',
+    rejectionReason: raw.rejection_reason ?? '',
+    approvedAt: raw.approved_at ?? '',
+    rejectedAt: raw.rejected_at ?? '',
+    createdAt: raw.created_at ?? '',
+  };
+}
+
 export const schemeService = {
   /** GET /api/v1/schemes (Admin) — all schemes, active + inactive. */
   async getAdminSchemes(): Promise<AdminScheme[]> {
@@ -127,5 +190,48 @@ export const schemeService = {
   async getCustomerSchemes(): Promise<CustomerScheme[]> {
     const res = await apiClient.get<{ schemes: BackendCustomerScheme[] }>('/customer/schemes', { auth: true });
     return res.data.schemes.map(mapCustomerScheme);
+  },
+
+  // ─── Phase 2 — Scheme Request lifecycle ───
+
+  /** POST /api/v1/scheme-requests (Customer) — file a request to join a scheme. */
+  async createRequest(schemeId: string): Promise<SchemeRequest> {
+    const res = await apiClient.post<{ request: BackendSchemeRequest }>(
+      '/scheme-requests', { scheme_id: schemeId }, { auth: true },
+    );
+    return mapSchemeRequest(res.data.request);
+  },
+
+  /** GET /api/v1/customer/scheme-requests (Customer) — own request history. */
+  async getMyRequests(): Promise<SchemeRequest[]> {
+    const res = await apiClient.get<{ requests: BackendSchemeRequest[] }>(
+      '/customer/scheme-requests', { auth: true },
+    );
+    return res.data.requests.map(mapSchemeRequest);
+  },
+
+  /** GET /api/v1/scheme-requests (Admin/Staff) — tenant queue, optional status filter. */
+  async getAdminRequests(status?: SchemeRequestStatus): Promise<SchemeRequest[]> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : '';
+    const res = await apiClient.get<{ requests: BackendSchemeRequest[] }>(
+      `/scheme-requests${query}`, { auth: true },
+    );
+    return res.data.requests.map(mapSchemeRequest);
+  },
+
+  /** POST /api/v1/scheme-requests/{id}/approve (Admin/Staff) — creates enrollment atomically. */
+  async approveRequest(id: string): Promise<SchemeRequest> {
+    const res = await apiClient.post<{ request: BackendSchemeRequest }>(
+      `/scheme-requests/${id}/approve`, {}, { auth: true },
+    );
+    return mapSchemeRequest(res.data.request);
+  },
+
+  /** POST /api/v1/scheme-requests/{id}/reject (Admin/Staff) — reason mandatory. */
+  async rejectRequest(id: string, reason: string): Promise<SchemeRequest> {
+    const res = await apiClient.post<{ request: BackendSchemeRequest }>(
+      `/scheme-requests/${id}/reject`, { reason }, { auth: true },
+    );
+    return mapSchemeRequest(res.data.request);
   },
 };

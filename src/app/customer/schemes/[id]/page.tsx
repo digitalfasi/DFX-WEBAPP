@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
-import { ArrowLeft, Gem, CheckCircle2 } from 'lucide-react';
-import { schemeService, CustomerScheme } from '@/services/schemeService';
+import { ArrowLeft, Gem, CheckCircle2, Clock, ShieldAlert, XCircle } from 'lucide-react';
+import { schemeService, CustomerScheme, SchemeRequest } from '@/services/schemeService';
 import { enrollmentService, CustomerEnrollment } from '@/services/enrollmentService';
+import { customerService } from '@/services/customerService';
 import { ApiError } from '@/lib/apiClient';
 
 export default function SchemeDetailsPage() {
@@ -19,24 +20,32 @@ export default function SchemeDetailsPage() {
 
   const [scheme, setScheme] = useState<CustomerScheme | null>(null);
   const [enrollment, setEnrollment] = useState<CustomerEnrollment | null>(null);
+  const [latestRequest, setLatestRequest] = useState<SchemeRequest | null>(null);
+  const [kycStatus, setKycStatus] = useState<string>('Pending');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const [enrolling, setEnrolling] = useState(false);
-  const [enrollError, setEnrollError] = useState('');
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [schemes, enrollments] = await Promise.all([
+      const [schemes, enrollments, requests, profile] = await Promise.all([
         schemeService.getCustomerSchemes(),
         enrollmentService.getMyEnrollments(),
+        schemeService.getMyRequests(),
+        customerService.getProfile(),
       ]);
       const found = schemes.find((s) => s.id === schemeId) ?? null;
       setScheme(found);
       setEnrollment(enrollments.find((e) => e.schemeId === schemeId && e.status === 'ACTIVE') ?? null);
+      // getMyRequests is ordered newest-first by the backend, so the first
+      // match for this scheme is the latest request.
+      setLatestRequest(requests.find((r) => r.schemeId === schemeId) ?? null);
+      setKycStatus(profile.kycStatus || 'Pending');
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load scheme details.');
     } finally {
@@ -49,21 +58,25 @@ export default function SchemeDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId]);
 
-  const handleEnroll = async () => {
-    setEnrollError('');
-    setEnrolling(true);
+  const handleRequest = async () => {
+    setRequestError('');
+    setRequesting(true);
     try {
-      const newEnrollment = await enrollmentService.enroll(schemeId);
-      setEnrollment(newEnrollment);
-      setToast({ message: 'Enrolled successfully!', type: 'success' });
+      const req = await schemeService.createRequest(schemeId);
+      setLatestRequest(req);
+      setToast({ message: 'Request submitted — awaiting store approval', type: 'success' });
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Could not enroll in this scheme. Please try again.';
-      setEnrollError(message);
-      setToast({ message: 'Enrollment failed', type: 'error' });
+      const message = err instanceof ApiError ? err.message : 'Could not submit request. Please try again.';
+      setRequestError(message);
+      setToast({ message: 'Request failed', type: 'error' });
     } finally {
-      setEnrolling(false);
+      setRequesting(false);
     }
   };
+
+  const kycVerified = kycStatus === 'Verified';
+  const hasPending = latestRequest?.status === 'REQUESTED';
+  const wasRejected = latestRequest?.status === 'REJECTED';
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
@@ -157,16 +170,56 @@ export default function SchemeDetailsPage() {
                 View Passbook
               </Button>
             </Card>
+          ) : hasPending ? (
+            <Card className="p-4 border-amber-200 bg-amber-50/60">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-amber-600" />
+                <h2 className="font-display font-bold text-sm text-amber-800">Request Pending Approval</h2>
+              </div>
+              <p className="text-xs text-amber-700 mt-1.5">
+                Your request to join this scheme has been sent to the store. You&apos;ll be enrolled once it&apos;s approved.
+              </p>
+            </Card>
           ) : (
             <div className="space-y-2">
-              {enrollError && (
+              {requestError && (
                 <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  {enrollError}
+                  {requestError}
                 </div>
               )}
-              <Button className="w-full shadow-glow" isLoading={enrolling} onClick={handleEnroll}>
-                {enrolling ? 'Enrolling...' : 'Enroll in this Scheme'}
-              </Button>
+
+              {wasRejected && (
+                <div className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    Your previous request was rejected{latestRequest?.rejectionReason ? `: ${latestRequest.rejectionReason}` : '.'} You can submit a new request below.
+                  </span>
+                </div>
+              )}
+
+              {!kycVerified ? (
+                <>
+                  {/* KYC step shown ONLY when the customer is not already verified. */}
+                  <div className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                    <span>
+                      KYC verification is required before you can join a scheme. Current status:{' '}
+                      <span className="font-bold">{kycStatus}</span>.
+                    </span>
+                  </div>
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={() => router.push('/customer/kyc')}
+                  >
+                    Complete KYC Verification
+                  </Button>
+                </>
+              ) : (
+                <Button className="w-full shadow-glow" isLoading={requesting} onClick={handleRequest}>
+                  {requesting ? 'Submitting...' : 'Request to Join this Scheme'}
+                </Button>
+              )}
             </div>
           )}
         </>
