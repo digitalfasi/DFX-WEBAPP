@@ -420,6 +420,20 @@ export const reportService = {
   },
 };
 
+export interface DashboardCards {
+  overdue_enrollments: number;
+  pending_kyc: number;
+  pending_inspection: number;
+}
+
+export const dashboardCardsService = {
+  /** GET /api/v1/reports/dashboard-cards (Admin/Staff) — live operational counts. */
+  async getDashboardCards(): Promise<DashboardCards> {
+    const res = await apiClient.get<DashboardCards>('/reports/dashboard-cards', { auth: true });
+    return res.data;
+  },
+};
+
 export type TopProductMetric = 'revenue' | 'quantity' | 'weight' | 'profit';
 
 export interface TopProductItem {

@@ -46,6 +46,8 @@ import {
   PaymentSummary,
   SchemeSummaryReport,
   GoldRateTrendReport,
+  dashboardCardsService,
+  DashboardCards,
 } from '@/services/reportService';
 import { enrollmentService, AdminEnrollment } from '@/services/enrollmentService';
 import { paymentService, AdminPayment, PaymentStatus, PaymentMethod } from '@/services/paymentService';
@@ -262,6 +264,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 font-body">
+      <OperationalCards />
 
       {/* 1. WORKSPACE HEADER WITH INLINE BULLION RATES & GREETING */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
@@ -785,6 +788,36 @@ function BillingSummarySection({
       {recentSales.length === 0 && hasToday === false && thisMonth.billCount === 0 && (
         <p className="text-xs text-slate-400 font-medium text-center py-2">No sales recorded yet.</p>
       )}
+    </div>
+  );
+}
+
+function OperationalCards() {
+  const router = useRouter();
+  const [cards, setCards] = useState<DashboardCards | null>(null);
+  useEffect(() => {
+    dashboardCardsService.getDashboardCards().then(setCards).catch(() => setCards(null));
+  }, []);
+  if (!cards) return null;
+  const items = [
+    { label: 'Overdue', value: cards.overdue_enrollments, href: '/admin/enrollments' },
+    { label: 'Pending KYC', value: cards.pending_kyc, href: '/admin/kyc' },
+    { label: 'Pending Inspection', value: cards.pending_inspection, href: '/admin/billing/inventory' },
+  ];
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {items.map((it) => (
+        <button
+          key={it.label}
+          onClick={() => router.push(it.href)}
+          className="text-left bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-gold/50 transition-colors"
+        >
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{it.label}</div>
+          <div className={'text-2xl font-extrabold font-display mt-0.5 ' + (it.value > 0 ? 'text-red-600' : 'text-[#0B0E23]')}>
+            {it.value}
+          </div>
+        </button>
+      ))}
     </div>
   );
 }

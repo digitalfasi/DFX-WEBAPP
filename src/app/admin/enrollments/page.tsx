@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Gem, BookOpen, Wallet, Lock } from 'lucide-react';
+import { Gem, BookOpen, Wallet, Lock, Pencil } from 'lucide-react';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/form-controls';
 import {
   enrollmentService, AdminEnrollment, EnrollmentStatus, EnrollmentBalance,
 } from '@/services/enrollmentService';
@@ -33,6 +34,24 @@ export default function AdminEnrollmentsPage() {
   const [enrollments, setEnrollments] = useState<AdminEnrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+
+  const REMARK_PRESETS = ['Followed up by phone', 'Requested payment extension', 'Payment promised', 'Documents pending', 'Do not disturb'];
+  const [remarksTarget, setRemarksTarget] = useState<AdminEnrollment | null>(null);
+  const [remarksText, setRemarksText] = useState('');
+  const [remarksSaving, setRemarksSaving] = useState(false);
+  const [remarksError, setRemarksError] = useState('');
+  const openRemarks = (e: AdminEnrollment) => { setRemarksTarget(e); setRemarksText(e.remarks || ''); setRemarksError(''); };
+  const saveRemarks = async (clear = false) => {
+    if (!remarksTarget) return;
+    setRemarksSaving(true); setRemarksError('');
+    try {
+      const updated = await enrollmentService.updateRemarks(remarksTarget.id, clear ? null : (remarksText.trim() || null));
+      setEnrollments((prev) => prev.map((x) => (x.id === updated.id ? { ...x, remarks: updated.remarks } : x)));
+      setRemarksTarget(null);
+    } catch (err) {
+      setRemarksError(err instanceof ApiError ? err.message : 'Could not save remarks.');
+    } finally { setRemarksSaving(false); }
+  };
 
   /* Scheme credit panel. Every figure is read from the backend, which derives it
    * from the contribution and redemption ledgers — nothing is computed here, and
@@ -264,7 +283,15 @@ export default function AdminEnrollmentsPage() {
                         >
                           <BookOpen className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => openRemarks(e)}
+                          className="p-1.5 text-slate-400 hover:text-[#0B0E23] hover:bg-slate-100 rounded-lg transition-colors"
+                          title="Edit Remarks"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                       </div>
+                      {e.remarks && <div className="text-[10px] text-slate-400 text-center mt-1 truncate max-w-[160px] mx-auto">{e.remarks}</div>}
                     </td>
                   </tr>
                 ))}
@@ -565,6 +592,24 @@ export default function AdminEnrollmentsPage() {
           <Button isLoading={saving} disabled={!redeemValid} onClick={handleRedeem}>
             Confirm Redemption
           </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog isOpen={!!remarksTarget} onClose={() => !remarksSaving && setRemarksTarget(null)} title="Enrollment Remarks" maxWidth="max-w-md">
+        <div className="space-y-3 text-xs">
+          {remarksError && <div role="alert" className="text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 font-medium">{remarksError}</div>}
+          <div className="flex flex-wrap gap-1.5">
+            {REMARK_PRESETS.map((r) => (
+              <button key={r} type="button" onClick={() => setRemarksText(r)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">{r}</button>
+            ))}
+          </div>
+          <Textarea value={remarksText} onChange={(e) => setRemarksText(e.target.value)} placeholder="Custom remark (optional)" maxLength={500} />
+          <p className="text-[10px] text-slate-400">Operational note only — never affects any financial record.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => saveRemarks(true)} disabled={remarksSaving}>Clear</Button>
+          <Button onClick={() => saveRemarks(false)} isLoading={remarksSaving}>Save</Button>
         </DialogFooter>
       </Dialog>
     </div>

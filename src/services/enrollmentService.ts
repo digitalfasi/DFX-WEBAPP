@@ -14,6 +14,7 @@ interface BackendAdminEnrollment {
   maturity_date: string;
   months_paid: number;
   next_due_date: string | null;
+  remarks: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,6 +54,7 @@ export interface AdminEnrollment {
   maturityDate: string;
   monthsPaid: number;
   nextDueDate: string | null;
+  remarks: string;
 }
 
 export interface CustomerEnrollment {
@@ -80,6 +82,7 @@ function mapAdminEnrollment(raw: BackendAdminEnrollment): AdminEnrollment {
     maturityDate: raw.maturity_date,
     monthsPaid: raw.months_paid ?? 0,
     nextDueDate: raw.next_due_date,
+    remarks: raw.remarks ?? '',
   };
 }
 
@@ -102,6 +105,16 @@ export const enrollmentService = {
   async getAdminEnrollments(): Promise<AdminEnrollment[]> {
     const res = await apiClient.get<{ enrollments: BackendAdminEnrollment[] }>('/enrollments', { auth: true });
     return res.data.enrollments.map(mapAdminEnrollment);
+  },
+
+  /** PATCH /api/v1/enrollments/{id}/remarks (Admin/Staff) — metadata only. */
+  async updateRemarks(enrollmentId: string, remarks: string | null): Promise<AdminEnrollment> {
+    const res = await apiClient.patch<{ enrollment: BackendAdminEnrollment }>(
+      `/enrollments/${enrollmentId}/remarks`,
+      { remarks },
+      { auth: true }
+    );
+    return mapAdminEnrollment(res.data.enrollment);
   },
 
   /** POST /api/v1/customer/enrollments — enroll in an active scheme. */
@@ -147,11 +160,15 @@ export const enrollmentService = {
    *  back if any one of them fails. */
   async redeemSchemes(
     saleId: string,
-    items: { enrollmentId: string; amount: number }[]
+    items: { enrollmentId: string; amount: number }[],
+    otpCode: string
   ): Promise<MultiSchemeSettlement> {
     const res = await apiClient.post<{ settlement: BackendMultiSchemeSettlement }>(
       `/billing/sales/${saleId}/redeem-schemes`,
-      { items: items.map((i) => ({ enrollment_id: i.enrollmentId, amount: i.amount })) },
+      {
+        items: items.map((i) => ({ enrollment_id: i.enrollmentId, amount: i.amount })),
+        otp_code: otpCode,
+      },
       { auth: true }
     );
     const d = res.data.settlement;
@@ -165,6 +182,20 @@ export const enrollmentService = {
       salePaymentStatus: d.sale_payment_status,
       balances: d.balances.map(mapBalance),
     };
+  },
+
+  /** Phase 5: sends a one-time verification code to the customer's app for a
+   *  sensitive scheme redemption. The code must be passed back to redeemSchemes
+   *  as otpCode. Returns metadata only — never the code. */
+  async requestRedemptionOtp(
+    saleId: string
+  ): Promise<{ challengeId: string; expiresAt: string }> {
+    const res = await apiClient.post<{ otp: { challenge_id: string; expires_at: string } }>(
+      `/billing/sales/${saleId}/redeem-schemes/request-otp`,
+      {},
+      { auth: true }
+    );
+    return { challengeId: res.data.otp.challenge_id, expiresAt: res.data.otp.expires_at };
   },
 
   /** Applies scheme credit to an existing invoice. The backend validates the
