@@ -434,6 +434,28 @@ export const dashboardCardsService = {
   },
 };
 
+export interface CollectionItem {
+  enrollment_id: string;
+  enrollment_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  customer_code: string | null;
+  customer_phone: string | null;
+  scheme_name: string | null;
+  due_date: string | null;
+  overdue_days: number | null;
+  reminders_sent: number;
+  status: string;
+}
+
+export const collectionsService = {
+  /** GET /api/v1/collections (Admin/Staff) — overdue scheme installments (read-only). */
+  async getCollections(): Promise<CollectionItem[]> {
+    const res = await apiClient.get<{ collections: CollectionItem[] }>('/collections', { auth: true });
+    return res.data.collections;
+  },
+};
+
 export type TopProductMetric = 'revenue' | 'quantity' | 'weight' | 'profit';
 
 export interface TopProductItem {

@@ -106,6 +106,7 @@ interface BackendAdminCustomerListItem {
   kyc_status: string;
   member_since: string | null;
   is_active: boolean;
+  customer_type: string | null;
 }
 
 export interface AdminCustomerListItem {
@@ -119,6 +120,7 @@ export interface AdminCustomerListItem {
   kycStatus: string;
   memberSince: string;
   isActive: boolean;
+  customerType: string;
 }
 
 function mapAdminCustomerListItem(raw: BackendAdminCustomerListItem): AdminCustomerListItem {
@@ -131,6 +133,7 @@ function mapAdminCustomerListItem(raw: BackendAdminCustomerListItem): AdminCusto
     kycStatus: raw.kyc_status,
     memberSince: raw.member_since ?? '',
     isActive: raw.is_active,
+    customerType: raw.customer_type ?? 'WALK-IN',
   };
 }
 

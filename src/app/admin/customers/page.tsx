@@ -72,6 +72,7 @@ function Section({
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<AdminCustomerListItem[]>([]);
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'WALK-IN' | 'SCHEME CUSTOMER' | 'HYBRID'>('ALL');
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -149,6 +150,15 @@ export default function AdminCustomersPage() {
             className="pl-10"
           />
         </div>
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {(['ALL', 'WALK-IN', 'SCHEME CUSTOMER', 'HYBRID'] as const).map((t) => (
+            <button key={t} onClick={() => setTypeFilter(t)}
+              className={'px-3 py-1 rounded-lg text-[11px] font-bold transition-colors ' +
+                (typeFilter === t ? 'bg-[#0B0E23] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>
+              {t === 'ALL' ? 'All Types' : t}
+            </button>
+          ))}
+        </div>
       </Card>
 
       {loading && <Skeleton className="h-64 w-full" />}
@@ -179,6 +189,7 @@ export default function AdminCustomersPage() {
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                     <th className="p-4">Customer</th>
                     <th className="p-4">Customer Code</th>
+                    <th className="p-4 text-center">Type</th>
                     <th className="p-4">Contact</th>
                     <th className="p-4 text-center">KYC Status</th>
                     <th className="p-4">Member Since</th>
@@ -186,7 +197,7 @@ export default function AdminCustomersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {customers.map((c) => (
+                  {customers.filter((c) => typeFilter === 'ALL' || c.customerType === typeFilter).map((c) => (
                     <tr
                       key={c.id}
                       onClick={() => openDetail(c.id)}
@@ -202,6 +213,11 @@ export default function AdminCustomersPage() {
                         <span className="font-mono text-[11px] font-bold text-slate-600 whitespace-nowrap">
                           {c.customerCode || '—'}
                         </span>
+                      </td>
+                      <td className="p-4 text-center">
+                        <Badge variant={c.customerType === 'HYBRID' ? 'gold' : c.customerType === 'SCHEME CUSTOMER' ? 'success' : 'neutral'} className="text-[10px] whitespace-nowrap">
+                          {c.customerType === 'SCHEME CUSTOMER' ? 'Scheme' : c.customerType === 'HYBRID' ? 'Hybrid' : 'Walk-in'}
+                        </Badge>
                       </td>
                       <td className="p-4 text-[11px] text-slate-500">
                         <div>{c.email || '—'}</div>

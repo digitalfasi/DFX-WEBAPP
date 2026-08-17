@@ -64,6 +64,7 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'billing-history', icon: 'Receipt', label: 'Sales History', path: '/admin/billing/history', ready: true, staffModule: 'billing', group: 'Billing' },
   { key: 'catalogue', icon: 'Tag', label: 'Catalogue Studio', path: '/admin/catalogue', ready: true, staffModule: 'catalogue', group: null },
   { key: 'marketing', icon: 'Megaphone', label: 'Marketing', path: '/admin/marketing', ready: true, staffModule: 'marketing', group: null },
+  { key: 'collections', icon: 'AlarmClock', label: 'Collections', path: '/admin/collections', ready: true, staffModule: 'reports', group: null },
   { key: 'reports', icon: 'TrendingUp', label: 'Reports & Analytics', path: '/admin/reports', ready: true, staffModule: 'reports', group: null },
   { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true, staffModule: 'branches', group: null },
   { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true, staffModule: null, group: null },
