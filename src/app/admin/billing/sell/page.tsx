@@ -65,6 +65,15 @@ export default function NewSalePage() {
   const [completeError, setCompleteError] = useState('');
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
 
+  // Phase 5 — customer-app OTP gate for scheme redemption.
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [otpSaleId, setOtpSaleId] = useState<string | null>(null);
+  const [otpItems, setOtpItems] = useState<{ enrollmentId: string; amount: number }[]>([]);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { branding } = useTenant();
@@ -446,15 +455,18 @@ export default function NewSalePage() {
       });
 
       if (schemeApplied) {
-        // ONE atomic call for every selected scheme. The backend validates all
-        // enrollments and the combined total before writing anything, so a
-        // failure on one scheme leaves none of the others spent. If it fails the
-        // sale already exists (cash only) and the draft is kept.
-        await enrollmentService.redeemSchemes(
-          sale.id,
-          schemeLines.map((l) => ({ enrollmentId: l.scheme.enrollmentId, amount: l.amount }))
-        );
-        sale = await billingService.getSale(sale.id);
+        // Phase 5: scheme redemption is sensitive — send a customer-app OTP and
+        // hand off to the OTP dialog. The atomic multi-scheme redeem runs only
+        // after the code verifies. The cash-side sale already exists.
+        const items = schemeLines.map((l) => ({ enrollmentId: l.scheme.enrollmentId, amount: l.amount }));
+        await enrollmentService.requestRedemptionOtp(sale.id);
+        setOtpSaleId(sale.id);
+        setOtpItems(items);
+        setOtpCode('');
+        setOtpError('');
+        setConfirmOpen(false);
+        setOtpOpen(true);
+        return;
       }
 
       setCompletedSale(sale);
@@ -467,6 +479,42 @@ export default function NewSalePage() {
       setCompleteError(err instanceof ApiError ? err.message : 'Could not complete the sale. Please try again.');
     } finally {
       setCompleting(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!otpSaleId) return;
+    setOtpError('');
+    setOtpSending(true);
+    try {
+      await enrollmentService.requestRedemptionOtp(otpSaleId);
+      setToast({ message: 'A new code was sent to the customer’s app', type: 'success' });
+    } catch (err) {
+      setOtpError(err instanceof ApiError ? err.message : 'Could not resend the code.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleConfirmOtp = async () => {
+    if (!otpSaleId) return;
+    if (otpCode.trim().length < 4) {
+      setOtpError('Enter the verification code sent to the customer’s app.');
+      return;
+    }
+    setOtpError('');
+    setOtpVerifying(true);
+    try {
+      await enrollmentService.redeemSchemes(otpSaleId, otpItems, otpCode.trim());
+      const sale = await billingService.getSale(otpSaleId);
+      setCompletedSale(sale);
+      setOtpOpen(false);
+      clearBillDraft(user?.tenantId, user?.id);
+      setStage('success');
+    } catch (err) {
+      setOtpError(err instanceof ApiError ? err.message : 'Could not verify the code. Please try again.');
+    } finally {
+      setOtpVerifying(false);
     }
   };
 
@@ -907,6 +955,19 @@ export default function NewSalePage() {
         <DialogFooter>
           <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={completing}>Cancel</Button>
           <Button onClick={handleCompleteSale} isLoading={completing}>Finalize Sale</Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog isOpen={otpOpen} onClose={() => !otpVerifying && !otpSending && setOtpOpen(false)} title="Verify Customer to Redeem Scheme" maxWidth="max-w-md">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">A verification code was sent to the customer&apos;s app. Enter it to release the scheme balance. The invoice is created; only the scheme redemption is pending this code.</p>
+          {otpError && <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{otpError}</div>}
+          <Input value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" placeholder="6-digit code" autoFocus />
+          <button type="button" onClick={handleResendOtp} disabled={otpSending || otpVerifying} className="text-[11px] font-semibold text-gold-dark hover:underline disabled:opacity-40">{otpSending ? 'Sending…' : 'Resend code'}</button>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOtpOpen(false)} disabled={otpVerifying || otpSending}>Cancel</Button>
+          <Button onClick={handleConfirmOtp} isLoading={otpVerifying}>Verify &amp; Redeem</Button>
         </DialogFooter>
       </Dialog>
 
