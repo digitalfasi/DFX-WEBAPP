@@ -1,9 +1,12 @@
 import { apiClient } from '@/lib/apiClient';
 
 /** Shape of a `promotion` object returned by the FastAPI backend (Admin view). */
+export type BannerType = 'STANDARD' | 'IMAGE_ONLY';
+
 interface BackendPromotion {
   id: string;
   tenant_id: string;
+  banner_type: string;
   title: string;
   subtitle: string | null;
   description: string | null;
@@ -23,6 +26,7 @@ interface BackendPromotion {
 /** Shape of the customer-facing home banner — lean, includes derived store branding. */
 interface BackendCustomerBanner {
   id: string;
+  banner_type: string;
   title: string;
   subtitle: string | null;
   description: string | null;
@@ -37,6 +41,7 @@ interface BackendCustomerBanner {
 
 export interface AdminPromotion {
   id: string;
+  bannerType: BannerType;
   title: string;
   subtitle: string;
   description: string;
@@ -55,6 +60,7 @@ export interface AdminPromotion {
 
 export interface CustomerBanner {
   id: string;
+  bannerType: BannerType;
   title: string;
   subtitle: string;
   description: string;
@@ -68,6 +74,7 @@ export interface CustomerBanner {
 }
 
 export interface PromotionFormData {
+  bannerType?: BannerType;
   title: string;
   subtitle?: string;
   description?: string;
@@ -85,6 +92,7 @@ export interface PromotionFormData {
 function mapAdminPromotion(raw: BackendPromotion): AdminPromotion {
   return {
     id: raw.id,
+    bannerType: (raw.banner_type as BannerType) ?? 'STANDARD',
     title: raw.title,
     subtitle: raw.subtitle ?? '',
     description: raw.description ?? '',
@@ -105,6 +113,7 @@ function mapAdminPromotion(raw: BackendPromotion): AdminPromotion {
 function mapCustomerBanner(raw: BackendCustomerBanner): CustomerBanner {
   return {
     id: raw.id,
+    bannerType: (raw.banner_type as BannerType) ?? 'STANDARD',
     title: raw.title,
     subtitle: raw.subtitle ?? '',
     description: raw.description ?? '',
@@ -120,6 +129,7 @@ function mapCustomerBanner(raw: BackendCustomerBanner): CustomerBanner {
 
 function toBackendPayload(data: Partial<PromotionFormData>) {
   return {
+    ...(data.bannerType !== undefined && { banner_type: data.bannerType }),
     ...(data.title !== undefined && { title: data.title }),
     ...(data.subtitle !== undefined && { subtitle: data.subtitle }),
     ...(data.description !== undefined && { description: data.description }),

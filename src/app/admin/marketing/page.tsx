@@ -15,6 +15,7 @@ import { Plus, Pencil, Trash2, Megaphone, ImagePlus } from 'lucide-react';
 import { ApiError } from '@/lib/apiClient';
 
 const EMPTY_FORM: PromotionFormData = {
+  bannerType: 'STANDARD',
   title: '',
   subtitle: '',
   description: '',
@@ -90,6 +91,7 @@ export default function MarketingPage() {
   const openEditDialog = (promo: AdminPromotion) => {
     setEditingId(promo.id);
     setForm({
+      bannerType: promo.bannerType,
       title: promo.title,
       subtitle: promo.subtitle,
       description: promo.description,
@@ -113,6 +115,7 @@ export default function MarketingPage() {
       const next: FieldErrors = {};
       let banner = '';
       const fieldMap: Record<string, keyof PromotionFormData> = {
+        banner_type: 'bannerType',
         title: 'title',
         subtitle: 'subtitle',
         description: 'description',
@@ -141,9 +144,21 @@ export default function MarketingPage() {
     }
   };
 
+  const isImageOnly = form.bannerType === 'IMAGE_ONLY';
+
   const handleSave = async () => {
     setFieldErrors({});
     setFormError('');
+    // Image-Only requires an image; Standard requires a title. Validated here
+    // for instant feedback and again on the backend (source of truth).
+    if (isImageOnly && !pendingImage && !form.imageUrl?.trim()) {
+      setFieldErrors({ imageUrl: 'An Image-Only banner requires an image.' });
+      return;
+    }
+    if (!isImageOnly && !form.title.trim()) {
+      setFieldErrors({ title: 'A Standard banner requires a title.' });
+      return;
+    }
     setSaving(true);
     try {
       let promoId = editingId;
@@ -270,8 +285,12 @@ export default function MarketingPage() {
                         <Megaphone className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="font-bold text-[#0B0E23]">{p.title}</div>
-                        {p.subtitle && <div className="text-[10px] text-slate-400">{p.subtitle}</div>}
+                        <div className="font-bold text-[#0B0E23]">
+                          {p.bannerType === 'IMAGE_ONLY' ? (p.title || 'Image-Only Banner') : p.title}
+                        </div>
+                        {p.bannerType === 'IMAGE_ONLY'
+                          ? <div className="text-[10px] text-gold-dark font-semibold">Image-Only</div>
+                          : (p.subtitle && <div className="text-[10px] text-slate-400">{p.subtitle}</div>)}
                       </div>
                     </td>
                     <td className="p-4 text-center font-mono font-bold text-[#0B0E23]">{p.priority}</td>
@@ -330,6 +349,37 @@ export default function MarketingPage() {
             </div>
           )}
 
+          {/* BANNER TYPE SELECTOR */}
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Banner Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['STANDARD', 'IMAGE_ONLY'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, bannerType: t }))}
+                  className={
+                    'rounded-xl border px-3 py-2 text-left transition-colors ' +
+                    (form.bannerType === t
+                      ? 'border-gold bg-gold/10 text-[#0B0E23]'
+                      : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300')
+                  }
+                >
+                  <div className="font-bold text-[11px]">{t === 'STANDARD' ? 'Standard Banner' : 'Image-Only Banner'}</div>
+                  <div className="text-[10px] mt-0.5">
+                    {t === 'STANDARD' ? 'Title, text & button' : 'Uploaded image is the whole banner'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {isImageOnly && (
+              <p className="text-[10px] text-slate-500 font-medium">
+                This image will be displayed as the complete promotion — no text or button is added over it.
+              </p>
+            )}
+          </div>
+
+          {!isImageOnly && (
           <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Title *</label>
             <Input
@@ -340,7 +390,9 @@ export default function MarketingPage() {
             />
             {fieldErrors.title && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.title}</p>}
           </div>
+          )}
 
+          {!isImageOnly && (
           <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Subtitle</label>
             <Input
@@ -351,7 +403,9 @@ export default function MarketingPage() {
             />
             {fieldErrors.subtitle && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.subtitle}</p>}
           </div>
+          )}
 
+          {!isImageOnly && (
           <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Description</label>
             <Textarea
@@ -362,16 +416,19 @@ export default function MarketingPage() {
             />
             {fieldErrors.description && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.description}</p>}
           </div>
+          )}
 
           <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Banner Image</label>
+            <label className="font-bold text-slate-500 uppercase text-[10px]">
+              Banner Image{isImageOnly ? ' *' : ''}
+            </label>
             {/* 16:9 — matches the mobile app's banner box, so what's shown
               * here is exactly what the customer sees (object-cover, so the
               * same edges get cropped). */}
             <div className="relative w-full aspect-video rounded-xl border border-slate-200 bg-slate-50 overflow-hidden flex items-center justify-center">
               {imagePreview || form.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={imagePreview || form.imageUrl} alt="Banner preview" className="w-full h-full object-cover" />
+                <img src={imagePreview || form.imageUrl} alt="Banner preview" className={`w-full h-full ${isImageOnly ? 'object-contain' : 'object-cover'}`} />
               ) : (
                 <span className="text-[11px] text-slate-400 font-medium">No image selected</span>
               )}
@@ -399,11 +456,14 @@ export default function MarketingPage() {
               {imagePreview || form.imageUrl ? 'Replace Image' : 'Upload Image'}
             </Button>
             <p className="text-[10px] text-slate-400 font-medium">
-              Uploaded on save. Shown to customers at 16:9 — keep key content centered.
+              {isImageOnly
+                ? 'Uploaded on save. Shown to customers in full — nothing is cropped or overlaid.'
+                : 'Uploaded on save. Shown to customers at 16:9 — keep key content centered.'}
             </p>
             {fieldErrors.imageUrl && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.imageUrl}</p>}
           </div>
 
+          {!isImageOnly && (
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <label className="font-bold text-slate-500 uppercase text-[10px]">Button Text</label>
@@ -427,7 +487,9 @@ export default function MarketingPage() {
               {fieldErrors.buttonLink && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.buttonLink}</p>}
             </div>
           </div>
+          )}
 
+          {!isImageOnly && (
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <label className="font-bold text-slate-500 uppercase text-[10px]">Background Color</label>
@@ -451,6 +513,7 @@ export default function MarketingPage() {
               {fieldErrors.textColor && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.textColor}</p>}
             </div>
           </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">

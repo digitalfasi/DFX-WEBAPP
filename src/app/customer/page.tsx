@@ -186,7 +186,30 @@ export default function CustomerDashboardPage() {
       </div>
 
       {/* Promotion Banner — driven by GET /customer/home-banner, renders nothing if none is active */}
-      {banner && (
+      {banner && banner.bannerType === 'IMAGE_ONLY' && banner.imageUrl && (
+        // Image-Only: the uploaded creative IS the banner. Full width, natural
+        // aspect ratio (h-auto), no crop, no text/CTA/colour overlay.
+        <button
+          type="button"
+          onClick={() => {
+            const link = banner.buttonLink || '';
+            if (!link) return;
+            if (link.startsWith('/')) router.push(link);
+            else window.location.href = link;
+          }}
+          className="block w-full rounded-2xl overflow-hidden shadow-md focus:outline-none"
+          aria-label={banner.title || 'Promotion'}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={banner.imageUrl}
+            alt={banner.title || 'Promotion'}
+            className="w-full h-auto block"
+          />
+        </button>
+      )}
+
+      {banner && banner.bannerType !== 'IMAGE_ONLY' && (
         <div
           className="bg-gradient-to-r from-ink via-ink-2 to-[#0D1226] text-white p-3.5 rounded-2xl border border-gold/30 flex items-center justify-between shadow-md"
           style={
