@@ -244,6 +244,13 @@ export default function CatalogueStudioPage() {
                     )}
                   </div>
                 )}
+                {product.tags && product.tags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    {product.tags.slice(0, 3).map((t) => (
+                      <Badge key={t} variant="neutral">{t}</Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             </Card>
           ))}
