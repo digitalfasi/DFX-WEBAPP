@@ -380,6 +380,61 @@ function mapAdminCustomerDetail(raw: BackendAdminCustomerDetail): AdminCustomerD
   };
 }
 
+/** Shape of the `customer` object returned by POST /admin/customers. */
+interface BackendAdminCustomerCreateResult {
+  id: string;
+  customer_code: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  is_active: boolean;
+  enrollment_id: string | null;
+  enrollment_number: string | null;
+}
+
+export interface AdminCustomerCreateResult {
+  id: string;
+  customerCode: string;
+  name: string;
+  email: string;
+  phone: string;
+  isActive: boolean;
+  enrollmentId: string | null;
+  enrollmentNumber: string | null;
+}
+
+function mapAdminCustomerCreateResult(raw: BackendAdminCustomerCreateResult): AdminCustomerCreateResult {
+  return {
+    id: raw.id,
+    customerCode: raw.customer_code ?? '',
+    name: raw.name,
+    email: raw.email ?? '',
+    phone: raw.phone ?? '',
+    isActive: raw.is_active,
+    enrollmentId: raw.enrollment_id,
+    enrollmentNumber: raw.enrollment_number,
+  };
+}
+
+/** Admin manual customer creation — walk-in supported (phone/email both
+ * optional). Mirrors AdminCustomerCreateRequest on the backend. */
+export interface AdminCustomerCreateData {
+  name: string;
+  phone?: string;
+  email?: string;
+  password: string;
+  schemeId?: string;
+}
+
+/** Admin edit of an existing customer — all fields optional (partial update). */
+export interface AdminCustomerUpdateData {
+  name?: string;
+  phone?: string;
+  email?: string;
+  password?: string;
+  isActive?: boolean;
+}
+
 export interface AdminCustomerPagination {
   page: number;
   pageSize: number;
@@ -743,6 +798,38 @@ export const customerService = {
   /** GET /api/v1/admin/customers/{id} */
   async getAdminCustomerDetail(id: string): Promise<AdminCustomerDetail> {
     const res = await apiClient.get<{ customer: BackendAdminCustomerDetail }>(`/admin/customers/${id}`, { auth: true });
+    return mapAdminCustomerDetail(res.data.customer);
+  },
+
+  /** POST /api/v1/admin/customers — manual/walk-in create; scheme_id optional. */
+  async createCustomerAdmin(data: AdminCustomerCreateData): Promise<AdminCustomerCreateResult> {
+    const res = await apiClient.post<{ customer: BackendAdminCustomerCreateResult }>(
+      '/admin/customers',
+      {
+        name: data.name,
+        password: data.password,
+        ...(data.phone ? { phone: data.phone } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.schemeId ? { scheme_id: data.schemeId } : {}),
+      },
+      { auth: true }
+    );
+    return mapAdminCustomerCreateResult(res.data.customer);
+  },
+
+  /** PUT /api/v1/admin/customers/{id} — partial update; only send changed fields. */
+  async updateCustomerAdmin(id: string, data: AdminCustomerUpdateData): Promise<AdminCustomerDetail> {
+    const res = await apiClient.put<{ customer: BackendAdminCustomerDetail }>(
+      `/admin/customers/${id}`,
+      {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.phone !== undefined && { phone: data.phone }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.password !== undefined && { password: data.password }),
+        ...(data.isActive !== undefined && { is_active: data.isActive }),
+      },
+      { auth: true }
+    );
     return mapAdminCustomerDetail(res.data.customer);
   },
 

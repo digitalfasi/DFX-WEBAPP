@@ -27,6 +27,8 @@ export const ProductDetailsPanel: React.FC<PanelProps> = React.memo(({ onToast }
     weightGrams: product?.weightGrams ?? undefined,
     description: product?.description ?? '',
     tags: product?.tags ?? [],
+    makingChargeDiscountPercent: product?.makingChargeDiscountPercent ?? undefined,
+    makingChargeDiscountLabel: product?.makingChargeDiscountLabel ?? '',
   });
   const [tagInput, setTagInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -48,6 +50,14 @@ export const ProductDetailsPanel: React.FC<PanelProps> = React.memo(({ onToast }
     e.preventDefault();
     if (!form.name || form.name.trim().length < 2) {
       onToast('Product name must be at least 2 characters.', 'error');
+      return;
+    }
+    if (
+      form.makingChargeDiscountPercent !== undefined &&
+      form.makingChargeDiscountPercent !== null &&
+      (form.makingChargeDiscountPercent < 0 || form.makingChargeDiscountPercent > 100)
+    ) {
+      onToast('Making-charge discount must be between 0 and 100.', 'error');
       return;
     }
     setSaving(true);
@@ -134,6 +144,35 @@ export const ProductDetailsPanel: React.FC<PanelProps> = React.memo(({ onToast }
           onChange={(e) => setForm({ ...form, price: e.target.value ? parseFloat(e.target.value) : undefined })}
           placeholder="0.00"
         />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">
+            Making-Charge Discount (%)
+          </label>
+          <Input
+            type="number"
+            step="0.01"
+            min={0}
+            max={100}
+            value={form.makingChargeDiscountPercent ?? ''}
+            onChange={(e) =>
+              setForm({ ...form, makingChargeDiscountPercent: e.target.value ? parseFloat(e.target.value) : undefined })
+            }
+            placeholder="0.00"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1.5 block">
+            Discount Label
+          </label>
+          <Input
+            value={form.makingChargeDiscountLabel ?? ''}
+            onChange={(e) => setForm({ ...form, makingChargeDiscountLabel: e.target.value })}
+            placeholder="e.g. Festive Offer"
+          />
+        </div>
       </div>
 
       <div>

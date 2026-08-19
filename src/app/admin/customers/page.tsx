@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Dialog } from '@/components/ui/dialog';
+import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { Select } from '@/components/ui/form-controls';
+import { Toast } from '@/components/ui/toast';
 import {
   Users,
   Search,
@@ -20,8 +22,17 @@ import {
   RotateCcw,
   BookOpen,
   IdCard,
+  Plus,
+  Pencil,
 } from 'lucide-react';
-import { customerService, AdminCustomerListItem, CustomerOverview } from '@/services/customerService';
+import {
+  customerService,
+  AdminCustomerListItem,
+  CustomerOverview,
+  AdminCustomerCreateData,
+  AdminCustomerUpdateData,
+} from '@/services/customerService';
+import { schemeService, AdminScheme } from '@/services/schemeService';
 import { ApiError } from '@/lib/apiClient';
 
 const PAGE_SIZE = 20;
@@ -88,6 +99,27 @@ export default function AdminCustomersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
 
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [schemes, setSchemes] = useState<AdminScheme[]>([]);
+
+  /* CREATE — reuses the same API/service the backend already supports:
+   * walk-in (no phone/email), optional scheme_id enrollment. */
+  const EMPTY_CREATE_FORM: AdminCustomerCreateData = { name: '', phone: '', email: '', password: '', schemeId: '' };
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<AdminCustomerCreateData>(EMPTY_CREATE_FORM);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  /* EDIT — partial update of an existing customer. */
+  const [editTarget, setEditTarget] = useState<AdminCustomerListItem | null>(null);
+  const [editForm, setEditForm] = useState<AdminCustomerUpdateData>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  useEffect(() => {
+    schemeService.getAdminSchemes().then(setSchemes).catch(() => {});
+  }, []);
+
   const loadCustomers = async (targetPage: number, searchTerm: string) => {
     setLoading(true);
     setLoadError('');
@@ -125,6 +157,70 @@ export default function AdminCustomersPage() {
     }
   };
 
+  const openCreate = () => {
+    setCreateForm(EMPTY_CREATE_FORM);
+    setCreateError('');
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async () => {
+    if (!createForm.name.trim()) {
+      setCreateError('Name is required.');
+      return;
+    }
+    if (!createForm.password || createForm.password.length < 8) {
+      setCreateError('Password must be at least 8 characters.');
+      return;
+    }
+    setCreateSaving(true);
+    setCreateError('');
+    try {
+      const result = await customerService.createCustomerAdmin(createForm);
+      setCreateOpen(false);
+      setToast({
+        message: `Customer created — Customer ID ${result.customerCode || result.id}${
+          result.enrollmentNumber ? ` · Enrollment ${result.enrollmentNumber}` : ''
+        }`,
+        type: 'success',
+      });
+      loadCustomers(1, search);
+    } catch (err) {
+      setCreateError(err instanceof ApiError ? err.message : 'Could not create customer.');
+    } finally {
+      setCreateSaving(false);
+    }
+  };
+
+  const openEdit = (c: AdminCustomerListItem) => {
+    setEditTarget(c);
+    setEditForm({ name: c.name, phone: c.phone, email: c.email, isActive: c.isActive });
+    setEditError('');
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget) return;
+    if (editForm.name !== undefined && !editForm.name.trim()) {
+      setEditError('Name is required.');
+      return;
+    }
+    if (editForm.password && editForm.password.length < 8) {
+      setEditError('Password must be at least 8 characters.');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await customerService.updateCustomerAdmin(editTarget.id, editForm);
+      setEditTarget(null);
+      setToast({ message: 'Customer updated.', type: 'success' });
+      loadCustomers(page, search);
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Could not update customer.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300 font-body">
       {/* PAGE HEADER */}
@@ -137,6 +233,9 @@ export default function AdminCustomersPage() {
             Search and review every customer registered under your store, their KYC status, and investment summary.
           </p>
         </div>
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Customer
+        </Button>
       </div>
 
       {/* SEARCH */}
@@ -194,6 +293,7 @@ export default function AdminCustomersPage() {
                     <th className="p-4 text-center">KYC Status</th>
                     <th className="p-4">Member Since</th>
                     <th className="p-4 text-center">Status</th>
+                    <th className="p-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -233,6 +333,18 @@ export default function AdminCustomersPage() {
                         <Badge variant={c.isActive ? 'success' : 'danger'} dot className="text-[10px]">
                           {c.isActive ? 'Active' : 'Inactive'}
                         </Badge>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(c);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-gold-dark hover:bg-gold/10 rounded-lg transition-colors"
+                          title="Edit customer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -460,6 +572,134 @@ export default function AdminCustomersPage() {
           </div>
         )}
       </Dialog>
+
+      {/* CREATE CUSTOMER */}
+      <Dialog isOpen={createOpen} onClose={() => !createSaving && setCreateOpen(false)} title="Add Customer" maxWidth="max-w-md">
+        <div className="space-y-3.5 text-xs">
+          {createError && (
+            <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {createError}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Name *</label>
+            <Input value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Customer's full name" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Phone</label>
+              <Input value={createForm.phone} onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Optional for walk-in" />
+            </div>
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Email</label>
+              <Input value={createForm.email} onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))} placeholder="Optional for walk-in" />
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 -mt-2">
+            Leave phone and email blank to create a walk-in customer — a Customer ID is generated either way.
+          </p>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Initial Password *</label>
+            <Input
+              type="password"
+              value={createForm.password}
+              onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
+              placeholder="Min. 8 characters"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Enroll in Scheme (optional)</label>
+            <Select value={createForm.schemeId} onChange={(e) => setCreateForm((f) => ({ ...f, schemeId: e.target.value }))}>
+              <option value="">No scheme</option>
+              {schemes.filter((s) => s.isActive).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)} disabled={createSaving}>
+            Cancel
+          </Button>
+          <Button size="sm" isLoading={createSaving} onClick={handleCreate}>
+            Create Customer
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* EDIT CUSTOMER */}
+      <Dialog isOpen={!!editTarget} onClose={() => !editSaving && setEditTarget(null)} title="Edit Customer" maxWidth="max-w-md">
+        {editTarget && (
+          <>
+            <div className="space-y-3.5 text-xs">
+              {editError && (
+                <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {editError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Customer ID</label>
+                <p className="font-mono font-bold text-slate-600">{editTarget.customerCode || '—'}</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Name *</label>
+                <Input value={editForm.name ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase text-[10px]">Phone</label>
+                  <Input value={editForm.phone ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase text-[10px]">Email</label>
+                  <Input value={editForm.email ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">New Password</label>
+                <Input
+                  type="password"
+                  value={editForm.password ?? ''}
+                  onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value || undefined }))}
+                  placeholder="Leave blank to keep current password"
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+                <span className="font-bold text-slate-600 text-[11px]">Active</span>
+                <button
+                  type="button"
+                  onClick={() => setEditForm((f) => ({ ...f, isActive: !f.isActive }))}
+                  className={'px-3 py-1 rounded-lg text-[11px] font-bold transition-colors ' +
+                    (editForm.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}
+                >
+                  {editForm.isActive ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setEditTarget(null)} disabled={editSaving}>
+                Cancel
+              </Button>
+              <Button size="sm" isLoading={editSaving} onClick={handleEdit}>
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </Dialog>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
     </div>
   );

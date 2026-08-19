@@ -87,6 +87,8 @@ interface BackendProduct {
   price: number | null;
   weight_grams: number | null;
   tags: string[];
+  making_charge_discount_percent: number | null;
+  making_charge_discount_label: string | null;
   is_active: boolean;
   created_by: string;
   created_at: string;
@@ -121,6 +123,11 @@ export interface Product {
   price: number | null;
   weightGrams: number | null;
   tags: string[];
+  /** Making-charge discount applied on this product — both optional, no
+   * stored value means no discount. Purely additive to the existing
+   * Product shape; unaffected products keep working unchanged. */
+  makingChargeDiscountPercent: number | null;
+  makingChargeDiscountLabel: string | null;
   isActive: boolean;
   createdBy: string;
   createdAt: string;
@@ -139,6 +146,8 @@ export interface ProductFormData {
   price?: number | null;
   weightGrams?: number | null;
   tags?: string[];
+  makingChargeDiscountPercent?: number | null;
+  makingChargeDiscountLabel?: string;
   isActive?: boolean;
 }
 
@@ -192,6 +201,8 @@ function mapProduct(raw: BackendProduct): Product {
     price: raw.price,
     weightGrams: raw.weight_grams,
     tags: raw.tags ?? [],
+    makingChargeDiscountPercent: raw.making_charge_discount_percent,
+    makingChargeDiscountLabel: raw.making_charge_discount_label,
     isActive: raw.is_active,
     createdBy: raw.created_by,
     createdAt: raw.created_at,
@@ -224,6 +235,8 @@ function toBackendPayload(data: Partial<ProductFormData>) {
     ...(data.price !== undefined && { price: data.price }),
     ...(data.weightGrams !== undefined && { weight_grams: data.weightGrams }),
     ...(data.tags !== undefined && { tags: data.tags }),
+    ...(data.makingChargeDiscountPercent !== undefined && { making_charge_discount_percent: data.makingChargeDiscountPercent }),
+    ...(data.makingChargeDiscountLabel !== undefined && { making_charge_discount_label: data.makingChargeDiscountLabel }),
     ...(data.isActive !== undefined && { is_active: data.isActive }),
   };
 }
