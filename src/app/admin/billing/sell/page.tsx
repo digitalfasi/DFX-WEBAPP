@@ -45,6 +45,12 @@ export default function NewSalePage() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [customerResults, setCustomerResults] = useState<AdminCustomerListItem[]>([]);
   const [customerSearching, setCustomerSearching] = useState(false);
+  /* Mobile-field customer resolution — entering a full mobile in the Mobile box
+   * resolves an existing customer (and their schemes) without the user having to
+   * find the separate search box. Kept separate from customerResults so the two
+   * inputs never clobber each other's dropdown. */
+  const [phoneResults, setPhoneResults] = useState<AdminCustomerListItem[]>([]);
+  const [phoneSearching, setPhoneSearching] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PAID');
   // Only meaningful for PARTIAL — the amount actually handed over at the
@@ -123,15 +129,60 @@ export default function NewSalePage() {
     setCustomerPhone(c.phone ?? '');
     setCustomerQuery(c.name);
     setCustomerResults([]);
+    setPhoneResults([]);
   };
 
   const clearCustomer = () => {
     setCustomerId('');
     setCustomerQuery('');
     setCustomerResults([]);
+    setPhoneResults([]);
     setSchemeOptions([]);
     setSchemeAmounts({});
   };
+
+  /* Editing the Mobile field is the primary way to pull up an existing customer.
+   * If a customer was already resolved, changing the number drops that selection
+   * (and their scheme data) first, so Customer A's schemes can never linger while
+   * the box now shows Customer B's number. */
+  const onMobileChange = (val: string) => {
+    setCustomerPhone(val);
+    if (customerId) {
+      setCustomerId('');
+      setSchemeOptions([]);
+      setSchemeAmounts({});
+    }
+  };
+
+  /* Mobile-field customer resolution. Once the Mobile box holds a full (10-digit)
+   * number and no customer is selected yet, search the tenant's customers by that
+   * number. Exactly one match auto-resolves the customer (which loads their
+   * schemes via the customerId effect below); several matches show a picker; none
+   * is a walk-in (no fake data). Same debounce/tenant-scoped search as the name
+   * box, so no duplicate machinery and no per-keystroke spam. */
+  useEffect(() => {
+    if (customerId) { setPhoneResults([]); return; }
+    const digits = customerPhone.replace(/\D/g, '');
+    if (digits.length < 10) { setPhoneResults([]); return; }
+    let cancelled = false;
+    setPhoneSearching(true);
+    const t = setTimeout(() => {
+      customerService.getAdminCustomers(1, 8, digits)
+        .then((r) => {
+          if (cancelled) return;
+          if (r.customers.length === 1) {
+            selectCustomer(r.customers[0]);   // unique match → auto-resolve
+            setPhoneResults([]);
+          } else {
+            setPhoneResults(r.customers);      // 0 = walk-in, many = user picks
+          }
+        })
+        .catch(() => { if (!cancelled) setPhoneResults([]); })
+        .finally(() => { if (!cancelled) setPhoneSearching(false); });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerPhone, customerId]);
 
   /* Load the selected customer's redeemable scheme balances. Filtered to this
    * customer client-side (no by-customer endpoint), then each balance is fetched
@@ -701,9 +752,30 @@ export default function NewSalePage() {
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Name</label>
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Walk-in customer name" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 relative">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mobile</label>
-              <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+91 90000 00000" />
+              <Input value={customerPhone} onChange={(e) => onMobileChange(e.target.value)} placeholder="+91 90000 00000" />
+              {!customerId && customerPhone.replace(/\D/g, '').length >= 10 && (phoneSearching || phoneResults.length > 0) && (
+                <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                  {phoneSearching ? (
+                    <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
+                  ) : (
+                    phoneResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => selectCustomer(c)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                      >
+                        <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
+                        <span className="block text-[10px] text-slate-500 font-medium truncate">
+                          {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
             <div className="space-y-1 sm:col-span-2 relative">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
@@ -772,16 +844,21 @@ export default function NewSalePage() {
             </div>
           </div>
 
-          {/* Scheme balance — shown only for an existing customer who has
-            * redeemable scheme credit. Awareness + explicit opt-in; the Admin
-            * chooses whether and how much to apply. Never auto-redeemed. */}
-          {customerId && (schemeLoading || schemeOptions.length > 0) && (
+          {/* Scheme balance — shown for any resolved existing customer. When the
+            * customer has no redeemable credit we say so explicitly (not an
+            * error, not hidden). Awareness + explicit opt-in; the Admin chooses
+            * whether and how much to apply. Never auto-redeemed. */}
+          {customerId && (
             <div className="space-y-2 bg-violet-50/60 border border-violet-200 rounded-xl p-4">
               <label className="text-[10px] font-bold text-violet-800 uppercase tracking-wider block">
                 Customer Scheme Credit
               </label>
               {schemeLoading ? (
                 <p className="text-[11px] text-slate-500 font-medium">Loading scheme balance…</p>
+              ) : schemeOptions.length === 0 ? (
+                <p className="text-[11px] text-slate-500 font-medium">
+                  This customer has no redeemable scheme balance.
+                </p>
               ) : (
                 <>
                   <p className="text-[11px] text-slate-600 font-medium">
