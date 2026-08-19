@@ -91,7 +91,7 @@ export default function MyEnrollmentsPage() {
           {enrollments.map((e) => (
             <Card
               key={e.id}
-              onClick={() => router.push(`/customer/schemes/${e.schemeId}`)}
+              onClick={() => router.push(`/customer/passbook/${e.id}`)}
               className="p-4 border-slate-line cursor-pointer hover:border-gold transition-all"
             >
               <CardContent className="p-0 space-y-2.5">
@@ -112,7 +112,7 @@ export default function MyEnrollmentsPage() {
                 </div>
                 <div className="flex justify-end pt-1">
                   <Button size="sm" variant="secondary" className="text-xs h-8">
-                    View Scheme <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                    View Passbook <ChevronRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </div>
               </CardContent>

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -10,6 +11,14 @@ import { ArrowLeft, Download, Share2, CheckCircle2, BookOpen } from 'lucide-reac
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { passbookService, Passbook } from '@/services/passbookService';
 import { ApiError } from '@/lib/apiClient';
+
+const STATUS_VARIANT: Record<string, 'success' | 'gold' | 'danger' | 'warn' | 'neutral'> = {
+  ACTIVE: 'success',
+  COMPLETED: 'gold',
+  CANCELLED: 'danger',
+  CLOSED: 'warn',
+  REDEEMED: 'neutral',
+};
 
 export default function PassbookPage() {
   const router = useRouter();
@@ -50,9 +59,16 @@ export default function PassbookPage() {
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div>
-          <h1 className="font-display font-bold text-base text-ink">
-            Digital Passbook
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display font-bold text-base text-ink">
+              Digital Passbook
+            </h1>
+            {passbook && (
+              <Badge variant={STATUS_VARIANT[passbook.enrollment.status] ?? 'neutral'}>
+                {passbook.enrollment.status}
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-slate-muted">{passbook?.scheme.name || 'Loading...'}</p>
         </div>
       </div>
