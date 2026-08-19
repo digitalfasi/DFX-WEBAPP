@@ -1,17 +1,14 @@
 "use client";
 
 import React from 'react';
-import { useParams } from 'next/navigation';
-import { StudioProvider } from '../../_components/studio/StudioContext';
-import { StudioShell } from '../../_components/studio/StudioShell';
+import ProductStudioEditor from '../../_components/ProductStudioEditor';
 
+/**
+ * DFX Product Studio — a focused product catalogue editor:
+ * Upload image → enter essential details → see the live customer preview → save.
+ * The former multi-step image workflow (Auto Fit / Image Processing / crop /
+ * Preview & Export) has been retired; the editor is a single clean screen.
+ */
 export default function ProductStudioPage() {
-  const params = useParams<{ productId: string }>();
-  const productId = params.productId;
-
-  return (
-    <StudioProvider productId={productId}>
-      <StudioShell />
-    </StudioProvider>
-  );
+  return <ProductStudioEditor />;
 }
