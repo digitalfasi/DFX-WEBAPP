@@ -84,6 +84,17 @@ export default function ProductStudioEditor() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const loadedIdRef = useRef<string | null>(null);
+  // For a brand-new product the image is chosen up front and held locally (raw
+  // File + an object-URL preview), then uploaded automatically on the single
+  // Create action — so the admin never has to save twice. Nothing is cropped or
+  // processed; the original File is sent as-is to the existing upload API.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+
+  // Release the object URL when it changes or the editor unmounts.
+  useEffect(() => {
+    return () => { if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl); };
+  }, [pendingPreviewUrl]);
 
   // Load an existing product once per real id. A brand-new product starts empty
   // and only fetches after its first save (which sets `product` directly).
@@ -159,14 +170,30 @@ export default function ProductStudioEditor() {
         setForm(formFromProduct(saved));
         setToast({ message: 'Product saved.', type: 'success' });
       } else {
-        const saved = await catalogueService.createProduct(buildPayload());
+        // One Create action: create the product, then (if an image was chosen
+        // up front) upload it to the new product id automatically — no second
+        // save. The raw File is sent as-is; the backend keeps the original.
+        let saved = await catalogueService.createProduct(buildPayload());
+        if (pendingFile) {
+          try {
+            const img = await catalogueService.uploadImage(saved.id, pendingFile);
+            await catalogueService.setPrimaryImage(saved.id, img.id);
+            saved = await catalogueService.getProductById(saved.id);
+            if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+            setPendingFile(null);
+            setPendingPreviewUrl(null);
+          } catch {
+            // Product is created; only the image upload failed. Keep the pending
+            // file so the admin can retry the image without recreating.
+            setToast({ message: 'Product created, but the image upload failed — try uploading it again.', type: 'error' });
+          }
+        }
         setProduct(saved);
         setForm(formFromProduct(saved));
         loadedIdRef.current = saved.id;
-        // Move to the product's own URL so a refresh reopens it, and so image
-        // upload (which needs a product id) becomes available.
+        // Move to the product's own URL so a refresh reopens it.
         router.replace(`/admin/catalogue/studio/${saved.id}`);
-        setToast({ message: 'Product created. You can now add an image.', type: 'success' });
+        if (!pendingFile) setToast({ message: 'Product created.', type: 'success' });
       }
     } catch (err) {
       setToast({ message: err instanceof ApiError ? err.message : 'Could not save product.', type: 'error' });
@@ -199,8 +226,28 @@ export default function ProductStudioEditor() {
     }
   };
 
+  // Choosing a file: an existing product uploads immediately; a new product
+  // holds the file locally (instant preview) until the single Create action.
+  const onSelectFile = (file: File | undefined) => {
+    if (!file) return;
+    if (product) {
+      handleFile(file, product.images?.find((i) => i.isPrimary)?.id);
+    } else {
+      if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+      setPendingFile(file);
+      setPendingPreviewUrl(URL.createObjectURL(file));
+    }
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
   const handleRemoveImage = async () => {
-    if (!product) return;
+    // New product with only a held (not-yet-uploaded) image: just drop it.
+    if (!product) {
+      if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+      setPendingFile(null);
+      setPendingPreviewUrl(null);
+      return;
+    }
     const primary = product.images?.find((i) => i.isPrimary) ?? product.images?.[0];
     if (!primary) return;
     setUploading(true);
@@ -215,7 +262,7 @@ export default function ProductStudioEditor() {
     }
   };
 
-  const imageUrl = primaryImageUrl(product);
+  const imageUrl = primaryImageUrl(product) ?? pendingPreviewUrl;
 
   if (loading) {
     return (
@@ -288,27 +335,25 @@ export default function ProductStudioEditor() {
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) => handleFile(e.target.files?.[0], product?.images?.find((i) => i.isPrimary)?.id)}
+              onChange={(e) => onSelectFile(e.target.files?.[0])}
             />
 
-            {isNew ? (
-              <p className="text-[11px] text-slate-400 font-medium mt-3">
-                Save the product first, then upload its image here. The original photo is kept exactly as
-                uploaded — no cropping or resizing.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Button size="sm" variant="outline" className="gap-1.5" disabled={uploading} onClick={() => fileRef.current?.click()}>
-                  {imageUrl ? <Repeat className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
-                  {imageUrl ? 'Replace' : 'Upload Image'}
+            <div className="flex flex-wrap gap-2 mt-3">
+              <Button size="sm" variant="outline" className="gap-1.5" disabled={uploading} onClick={() => fileRef.current?.click()}>
+                {imageUrl ? <Repeat className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
+                {imageUrl ? 'Replace' : 'Upload Image'}
+              </Button>
+              {imageUrl && (
+                <Button size="sm" variant="outline" className="gap-1.5 text-red-600 hover:bg-red-50" disabled={uploading} onClick={handleRemoveImage}>
+                  <Trash2 className="w-3.5 h-3.5" /> Remove
                 </Button>
-                {imageUrl && (
-                  <Button size="sm" variant="outline" className="gap-1.5 text-red-600 hover:bg-red-50" disabled={uploading} onClick={handleRemoveImage}>
-                    <Trash2 className="w-3.5 h-3.5" /> Remove
-                  </Button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium mt-2">
+              {isNew
+                ? 'The image is added automatically when you create the product. The original photo is kept exactly as uploaded — no cropping or resizing.'
+                : 'The original photo is kept exactly as uploaded — no cropping or resizing.'}
+            </p>
           </div>
 
           {/* Live customer preview */}
