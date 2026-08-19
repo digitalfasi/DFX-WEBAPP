@@ -914,6 +914,9 @@ export interface BillingPeriodSummary {
   cashCollected: number;
   schemeRedemption: number;
   refundsPaid: number;
+  /** Split of cashCollected by payment method, e.g. { CASH: 5000, UPI: 2000 }.
+   *  Scheme settlements are excluded upstream, so these sum to cashCollected. */
+  collectedByMethod: Record<string, number>;
   totalPaid: number;
   totalOutstanding: number;
   paidCount: number;
@@ -1020,6 +1023,7 @@ interface BackendBillingPeriodSummary {
   cash_collected?: number;
   scheme_redemption?: number;
   refunds_paid?: number;
+  collected_by_method?: Record<string, number>;
   total_paid?: number;
   total_outstanding?: number;
   paid_count?: number;
@@ -1066,6 +1070,7 @@ function mapPeriodSummary(raw: BackendBillingPeriodSummary): BillingPeriodSummar
     cashCollected: raw.cash_collected ?? 0,
     schemeRedemption: raw.scheme_redemption ?? 0,
     refundsPaid: raw.refunds_paid ?? 0,
+    collectedByMethod: raw.collected_by_method ?? {},
     totalPaid: raw.total_paid ?? 0,
     totalOutstanding: raw.total_outstanding ?? 0,
     paidCount: raw.paid_count ?? 0,
@@ -1096,6 +1101,110 @@ function mapDashboardSummary(raw: BackendBillingDashboardSummary): BillingDashbo
     })),
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Bill Drafts (unfinished bills)                                      */
+/* ------------------------------------------------------------------ */
+
+export interface BillDraftInput {
+  productCode: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerQuery?: string | null;
+  customerPrice?: number | null;
+  gstApplied: boolean;
+  makingChargeValue?: number | null;
+  wastageValue?: number | null;
+  goldProfitPercent?: number | null;
+  discountAmount?: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  initialPayment?: number | null;
+  schemeAmounts?: Record<string, number> | null;
+  note?: string | null;
+}
+
+export interface BillDraft extends BillDraftInput {
+  id: string;
+  status: string;
+  createdBy: string;
+  finalizedSaleId?: string | null;
+  updatedAt: string;
+}
+
+export interface BillDraftListItem {
+  id: string;
+  status: string;
+  productCode: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  createdBy: string;
+  note?: string | null;
+  updatedAt: string;
+}
+
+function draftToPayload(d: BillDraftInput): Record<string, unknown> {
+  return {
+    product_code: d.productCode,
+    customer_id: d.customerId || null,
+    customer_name: d.customerName || null,
+    customer_phone: d.customerPhone || null,
+    customer_query: d.customerQuery || null,
+    customer_price: d.customerPrice ?? null,
+    gst_applied: d.gstApplied,
+    making_charge_value: d.makingChargeValue ?? null,
+    wastage_value: d.wastageValue ?? null,
+    gold_profit_percent: d.goldProfitPercent ?? null,
+    discount_amount: d.discountAmount ?? 0,
+    payment_method: d.paymentMethod,
+    payment_status: d.paymentStatus,
+    initial_payment: d.initialPayment ?? null,
+    scheme_amounts: d.schemeAmounts && Object.keys(d.schemeAmounts).length ? d.schemeAmounts : null,
+    note: d.note || null,
+  };
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function mapDraft(raw: any): BillDraft {
+  return {
+    id: raw.id,
+    status: raw.status,
+    createdBy: raw.created_by,
+    productCode: raw.product_code,
+    customerId: raw.customer_id,
+    customerName: raw.customer_name,
+    customerPhone: raw.customer_phone,
+    customerQuery: raw.customer_query,
+    customerPrice: raw.customer_price,
+    gstApplied: raw.gst_applied,
+    makingChargeValue: raw.making_charge_value,
+    wastageValue: raw.wastage_value,
+    goldProfitPercent: raw.gold_profit_percent,
+    discountAmount: raw.discount_amount,
+    paymentMethod: raw.payment_method,
+    paymentStatus: raw.payment_status,
+    initialPayment: raw.initial_payment,
+    schemeAmounts: raw.scheme_amounts ?? null,
+    note: raw.note,
+    finalizedSaleId: raw.finalized_sale_id,
+    updatedAt: raw.updated_at,
+  };
+}
+
+function mapDraftListItem(raw: any): BillDraftListItem {
+  return {
+    id: raw.id,
+    status: raw.status,
+    productCode: raw.product_code,
+    customerName: raw.customer_name,
+    customerPhone: raw.customer_phone,
+    createdBy: raw.created_by,
+    note: raw.note,
+    updatedAt: raw.updated_at,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export const billingService = {
   /* Vendors */
@@ -1545,5 +1654,44 @@ export const billingService = {
     }
     const res = await apiClient.get<BackendBusinessSummary>(`/billing/business-summary?${query.toString()}`, { auth: true });
     return mapBusinessSummary(res.data);
+  },
+
+  /* Bill Drafts (unfinished bills) */
+  async listDrafts(params?: { productCode?: string; customerId?: string; status?: string }): Promise<BillDraftListItem[]> {
+    const q = new URLSearchParams();
+    if (params?.productCode) q.set('product_code', params.productCode);
+    if (params?.customerId) q.set('customer_id', params.customerId);
+    if (params?.status) q.set('status', params.status);
+    const qs = q.toString();
+    const res = await apiClient.get<{ drafts: unknown[] }>(`/billing/drafts${qs ? `?${qs}` : ''}`, { auth: true });
+    return res.data.drafts.map(mapDraftListItem);
+  },
+
+  async getDraft(draftId: string): Promise<BillDraft> {
+    const res = await apiClient.get<{ draft: unknown }>(`/billing/drafts/${draftId}`, { auth: true });
+    return mapDraft(res.data.draft);
+  },
+
+  async createDraft(data: BillDraftInput): Promise<BillDraft> {
+    const res = await apiClient.post<{ draft: unknown }>('/billing/drafts', draftToPayload(data), { auth: true });
+    return mapDraft(res.data.draft);
+  },
+
+  async updateDraft(draftId: string, data: BillDraftInput): Promise<BillDraft> {
+    const res = await apiClient.put<{ draft: unknown }>(`/billing/drafts/${draftId}`, draftToPayload(data), { auth: true });
+    return mapDraft(res.data.draft);
+  },
+
+  async discardDraft(draftId: string): Promise<void> {
+    await apiClient.delete(`/billing/drafts/${draftId}`, { auth: true });
+  },
+
+  async finalizeDraft(draftId: string, otpCode?: string): Promise<Sale> {
+    const res = await apiClient.post<{ sale: BackendSale }>(
+      `/billing/drafts/${draftId}/finalize`,
+      { otp_code: otpCode ?? null },
+      { auth: true }
+    );
+    return mapSale(res.data.sale);
   },
 };

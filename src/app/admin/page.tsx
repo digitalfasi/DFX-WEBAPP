@@ -676,6 +676,16 @@ function BillingSummarySection({
     { label: "Today's Gold Rate", val: todayGoldRate24k !== null ? `${formatCurrency(todayGoldRate24k)}/g` : 'Not set', icon: Gem, color: 'text-gold bg-gold/10 border-gold/30' },
   ];
 
+  /* How today's collected money came in, split by payment method. Backend
+   * splits cashCollected only — scheme credit is never counted here, so these
+   * always add up to Money Collected. Business-friendly labels. */
+  const METHOD_LABELS: Record<string, string> = {
+    CASH: 'Cash', UPI: 'UPI', CARD: 'Card', BANK_TRANSFER: 'Bank Transfer', OTHER: 'Other',
+  };
+  const methodRows = Object.entries(today.collectedByMethod)
+    .filter(([, amt]) => amt > 0)
+    .sort((a, b) => b[1] - a[1]);
+
   // Payment-status counts + historical-cost profit, backend-derived.
   const statusChips = [
     { label: 'Paid', count: today.paidCount, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
@@ -704,6 +714,23 @@ function BillingSummarySection({
           );
         })}
       </div>
+
+      {/* How today's money came in. Scheme credit is shown as its own card
+        * above and is deliberately absent here — it settles a bill but is not
+        * money collected today. */}
+      {methodRows.length > 0 && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Money Collected By</p>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
+            {methodRows.map(([method, amount]) => (
+              <span key={method} className="text-xs font-medium text-slate-600">
+                {METHOD_LABELS[method] ?? method}{' '}
+                <span className="font-mono font-bold text-emerald-600">{formatCurrency(amount)}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Payment-status counts + historical-cost profit. Current gold-value
         * profit is NOT shown at period level: the backend has no aggregate for

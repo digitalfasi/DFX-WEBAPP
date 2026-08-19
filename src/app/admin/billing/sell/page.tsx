@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +20,6 @@ import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
 import { useAuth } from '@/hooks/useAuth';
-import { loadBillDraft, saveBillDraft, clearBillDraft, BillDraft } from '@/lib/billDraft';
 import { enrollmentService, EnrollmentBalance } from '@/services/enrollmentService';
 import { customerService, AdminCustomerListItem } from '@/services/customerService';
 
@@ -79,6 +79,14 @@ export default function NewSalePage() {
   const { branding } = useTenant();
   const { user } = useAuth();
 
+  /* Server-side unfinished bill this screen is currently working on (if any).
+   * Set when resuming a draft via ?draft=<id>, or after Save as Draft. On a
+   * successful finalize the draft is removed from the open list. */
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const searchParams = useSearchParams();
+  const serverDraftLoaded = useRef(false);
+
   /* Recalculation sequencing. Every quote request gets a number; only the
    * newest one is allowed to write state, and the previous in-flight request is
    * aborted. Without this, a slow earlier response can land after a faster
@@ -92,9 +100,6 @@ export default function NewSalePage() {
 
   /* Draft restore. A draft is only offered, never silently applied on top of a
    * bill in progress. */
-  const [pendingDraft, setPendingDraft] = useState<BillDraft | null>(null);
-  const [restoringDraft, setRestoringDraft] = useState(false);
-  const draftLoaded = useRef(false);
 
   // Tenant-scoped customer lookup — staff search by name/phone/email rather
   // than recalling an internal usr_ id. Debounced so typing doesn't spam the API.
@@ -265,8 +270,6 @@ export default function NewSalePage() {
     recalcAbort.current?.abort();
     recalcSeq.current += 1;
     lastQuoteKey.current = '';
-    clearBillDraft(user?.tenantId, user?.id);
-    setPendingDraft(null);
     setSchemeOptions([]);
     setSchemeAmounts({});
     setStage('scan');
@@ -290,92 +293,113 @@ export default function NewSalePage() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  /* Draft persistence -----------------------------------------------------
-   * Purely a local convenience: nothing below touches the backend, so an
-   * unfinished bill can never reach Sales History, mark inventory SOLD, create
-   * a payment row, or move a dashboard figure. Only Save Bill does that. */
-  useEffect(() => {
-    if (draftLoaded.current || !user?.tenantId || !user?.id) return;
-    draftLoaded.current = true;
-    const existing = loadBillDraft(user.tenantId, user.id);
-    if (existing) setPendingDraft(existing);
-  }, [user?.tenantId, user?.id]);
+  /* Unfinished bills are server-side only (see billingService drafts + the
+   * Unfinished Bills page). This Sell screen no longer reads or writes the old
+   * localStorage draft — the server is the single source of truth. */
 
+  /* Resume a server-side unfinished bill opened from the Unfinished Bills list
+   * (?draft=<id>). The item, gold rate and every amount are re-read live, so a
+   * resumed draft can never carry a stale price — only the Admin's own inputs
+   * come from the draft. */
   useEffect(() => {
-    if (stage !== 'review' || !quote) return;
-    saveBillDraft(user?.tenantId, user?.id, {
-      productCode: quote.inventoryItem.productCode,
-      customerPrice,
-      gstApplied,
-      makingValue,
-      wastageValue,
-      goldProfitPct,
-      customerName,
-      customerPhone,
-      customerId,
-      customerQuery,
-      paymentMethod,
-      paymentStatus,
-      initialPayment,
-    });
-  }, [
-    stage, quote, customerPrice, gstApplied, makingValue, wastageValue, goldProfitPct,
-    customerName, customerPhone, customerId, customerQuery, paymentMethod, paymentStatus,
-    initialPayment, user?.tenantId, user?.id,
-  ]);
+    const draftId = searchParams?.get('draft');
+    if (!draftId || serverDraftLoaded.current) return;
+    serverDraftLoaded.current = true;
+    (async () => {
+      setStage('loading');
+      try {
+        const d = await billingService.getDraft(draftId);
+        const priceStr = d.customerPrice != null ? String(d.customerPrice) : '';
+        const parsedPrice = parseFloat(priceStr);
+        const q = await billingService.getSaleQuote(
+          d.productCode, 0, d.gstApplied,
+          !isNaN(parsedPrice) ? parsedPrice : undefined,
+          {
+            makingChargeValue: d.makingChargeValue ?? undefined,
+            wastageValue: d.wastageValue ?? undefined,
+            goldProfitPercent: d.goldProfitPercent ?? undefined,
+          }
+        );
+        setQuote(q);
+        setCustomerPrice(priceStr);
+        setGstApplied(d.gstApplied);
+        setMakingValue(d.makingChargeValue != null ? String(d.makingChargeValue) : '');
+        setWastageValue(d.wastageValue != null ? String(d.wastageValue) : '');
+        setGoldProfitPct(d.goldProfitPercent != null ? String(d.goldProfitPercent) : '');
+        setCustomerName(d.customerName ?? '');
+        setCustomerPhone(d.customerPhone ?? '');
+        setCustomerId(d.customerId ?? '');
+        setCustomerQuery(d.customerQuery ?? '');
+        setPaymentMethod((d.paymentMethod as PaymentMethod) ?? 'CASH');
+        setPaymentStatus((d.paymentStatus as PaymentStatus) ?? 'PAID');
+        setInitialPayment(d.initialPayment != null ? String(d.initialPayment) : '');
+        setSchemeAmounts(
+          d.schemeAmounts
+            ? Object.fromEntries(Object.entries(d.schemeAmounts).map(([k, v]) => [k, String(v)]))
+            : {}
+        );
+        setActiveDraftId(d.id);
+        setStage('review');
+      } catch (err) {
+        setScanError(err instanceof ApiError ? err.message : 'Could not open the unfinished bill.');
+        setStage('scan');
+      }
+    })();
+  }, [searchParams]);
 
-  /* Restoring re-reads the item from the backend, so a draft can never
-   * resurrect a stale price, a stale gold rate, or an item that has since been
-   * sold — only the Admin's own inputs come from the draft. */
-  const restoreDraft = async (draft: BillDraft) => {
-    setRestoringDraft(true);
-    setScanError('');
+  /* Save the current bill as a server-side unfinished bill (draft). Creates a
+   * new draft, or updates the one being resumed. Never touches inventory,
+   * scheme balances or any total — only Save Bill (finalize) does that. */
+  const saveAsServerDraft = async () => {
+    if (!quote) return;
+    setSavingDraft(true);
     try {
-      const parsedPrice = parseFloat(draft.customerPrice);
-      const q = await billingService.getSaleQuote(
-        draft.productCode, 0, draft.gstApplied,
-        !isNaN(parsedPrice) ? parsedPrice : undefined,
-        {
-          makingChargeValue: num(draft.makingValue),
-          wastageValue: num(draft.wastageValue),
-          goldProfitPercent: num(draft.goldProfitPct),
-        }
-      );
-      setQuote(q);
-      lastQuoteKey.current = [
-        q.inventoryItem.productCode, !isNaN(parsedPrice) ? parsedPrice : '', draft.gstApplied,
-        draft.makingValue, draft.wastageValue, draft.goldProfitPct,
-      ].join('|');
-      setCustomerPrice(draft.customerPrice);
-      setGstApplied(draft.gstApplied);
-      setMakingValue(draft.makingValue);
-      setWastageValue(draft.wastageValue);
-      setGoldProfitPct(draft.goldProfitPct);
-      setCustomerName(draft.customerName);
-      setCustomerPhone(draft.customerPhone);
-      setCustomerId(draft.customerId);
-      setCustomerQuery(draft.customerQuery);
-      setPaymentMethod(draft.paymentMethod as PaymentMethod);
-      setPaymentStatus(draft.paymentStatus as PaymentStatus);
-      setInitialPayment(draft.initialPayment);
-      setPendingDraft(null);
-      setStage('review');
+      const schemeNums: Record<string, number> = {};
+      for (const [k, v] of Object.entries(schemeAmounts)) {
+        const n = parseFloat(v);
+        if (!isNaN(n) && n > 0) schemeNums[k] = n;
+      }
+      const input = {
+        productCode: quote.inventoryItem.productCode,
+        customerId: customerId.trim() || null,
+        customerName: customerName.trim() || null,
+        customerPhone: customerPhone.trim() || null,
+        customerQuery: customerQuery.trim() || null,
+        customerPrice: num(customerPrice) ?? null,
+        gstApplied,
+        makingChargeValue: num(makingValue) ?? null,
+        wastageValue: num(wastageValue) ?? null,
+        goldProfitPercent: num(goldProfitPct) ?? null,
+        paymentMethod,
+        paymentStatus,
+        initialPayment: num(initialPayment) ?? null,
+        schemeAmounts: Object.keys(schemeNums).length ? schemeNums : null,
+      };
+      if (activeDraftId) {
+        await billingService.updateDraft(activeDraftId, input);
+      } else {
+        const created = await billingService.createDraft(input);
+        setActiveDraftId(created.id);
+      }
+      setToast({ message: 'Saved to Unfinished Bills', type: 'success' });
     } catch (err) {
-      setScanError(
-        err instanceof ApiError
-          ? `Could not restore the saved bill: ${err.message}`
-          : 'Could not restore the saved bill.'
-      );
-      setPendingDraft(null);
-      clearBillDraft(user?.tenantId, user?.id);
+      setToast({ message: err instanceof ApiError ? err.message : 'Could not save the draft.', type: 'error' });
     } finally {
-      setRestoringDraft(false);
+      setSavingDraft(false);
     }
   };
 
-  const discardDraft = () => {
-    clearBillDraft(user?.tenantId, user?.id);
-    setPendingDraft(null);
+  /* A resumed/created draft has become a real Sale — remove it from the open
+   * list. Best-effort: a failed cleanup never blocks the completed sale. */
+  const clearActiveServerDraft = async () => {
+    if (!activeDraftId) return;
+    try {
+      await billingService.discardDraft(activeDraftId);
+    } catch {
+      /* ignore — the sale is already finalized; the stale draft can be
+       * discarded manually from the Unfinished Bills list. */
+    }
+    setActiveDraftId(null);
   };
 
   const customerIdentified = customerId.trim().length > 0 || customerName.trim().length > 0;
@@ -439,20 +463,51 @@ export default function NewSalePage() {
         ? (cashNow > 0 ? cashNow : undefined)
         : (paymentStatus === 'PARTIAL' ? parsedInitialPayment : undefined);
 
-      let sale = await billingService.createSale({
-        productCode: quote.inventoryItem.productCode,
-        customerId: customerId.trim() || undefined,
-        customerName: customerName.trim() || undefined,
-        customerPhone: customerPhone.trim() || undefined,
-        customerPrice: !isNaN(parsedPrice) ? parsedPrice : undefined,
-        gstApplied,
-        makingChargeValue: num(makingValue),
-        wastageValue: num(wastageValue),
-        goldProfitPercent: num(goldProfitPct),
-        paymentMethod,
-        paymentStatus: createStatus,
-        initialPaymentAmount: createInitial,
-      });
+      let sale: Sale;
+      if (activeDraftId) {
+        // Resumed unfinished bill: persist the Admin's latest edits, then
+        // finalize THROUGH the server draft endpoint. The server locks the
+        // draft, recomputes pricing live, marks inventory SOLD, creates exactly
+        // one Sale and flips the draft to FINALIZED. No second Sale is ever
+        // created via createSale. A scheme selection makes the finalized Sale
+        // PENDING so the existing per-sale OTP + redeem flow below settles it.
+        await billingService.updateDraft(activeDraftId, {
+          productCode: quote.inventoryItem.productCode,
+          customerId: customerId.trim() || null,
+          customerName: customerName.trim() || null,
+          customerPhone: customerPhone.trim() || null,
+          customerQuery: customerQuery.trim() || null,
+          customerPrice: !isNaN(parsedPrice) ? parsedPrice : null,
+          gstApplied,
+          makingChargeValue: num(makingValue) ?? null,
+          wastageValue: num(wastageValue) ?? null,
+          goldProfitPercent: num(goldProfitPct) ?? null,
+          paymentMethod,
+          paymentStatus: createStatus,
+          initialPayment: createInitial ?? null,
+          schemeAmounts: schemeApplied
+            ? Object.fromEntries(schemeLines.map((l) => [l.scheme.enrollmentId, l.amount]))
+            : null,
+        });
+        sale = await billingService.finalizeDraft(activeDraftId);
+        // Draft is FINALIZED server-side now — stop tracking it.
+        setActiveDraftId(null);
+      } else {
+        sale = await billingService.createSale({
+          productCode: quote.inventoryItem.productCode,
+          customerId: customerId.trim() || undefined,
+          customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
+          customerPrice: !isNaN(parsedPrice) ? parsedPrice : undefined,
+          gstApplied,
+          makingChargeValue: num(makingValue),
+          wastageValue: num(wastageValue),
+          goldProfitPercent: num(goldProfitPct),
+          paymentMethod,
+          paymentStatus: createStatus,
+          initialPaymentAmount: createInitial,
+        });
+      }
 
       if (schemeApplied) {
         // Phase 5: scheme redemption is sensitive — send a customer-app OTP and
@@ -471,9 +526,9 @@ export default function NewSalePage() {
 
       setCompletedSale(sale);
       setConfirmOpen(false);
-      /* Saved for real — the draft has served its purpose. A failed save falls
-       * through to the catch and deliberately keeps it. */
-      clearBillDraft(user?.tenantId, user?.id);
+      // Fresh (non-draft) sale finalized. A resumed draft was already flipped to
+      // FINALIZED by the finalize endpoint above.
+      await clearActiveServerDraft();
       setStage('success');
     } catch (err) {
       setCompleteError(err instanceof ApiError ? err.message : 'Could not complete the sale. Please try again.');
@@ -509,7 +564,7 @@ export default function NewSalePage() {
       const sale = await billingService.getSale(otpSaleId);
       setCompletedSale(sale);
       setOtpOpen(false);
-      clearBillDraft(user?.tenantId, user?.id);
+      await clearActiveServerDraft();
       setStage('success');
     } catch (err) {
       setOtpError(err instanceof ApiError ? err.message : 'Could not verify the code. Please try again.');
@@ -531,28 +586,6 @@ export default function NewSalePage() {
           </p>
         </div>
       </div>
-
-      {/* Unfinished bill from an earlier visit. Offered, never auto-applied —
-        * and it is only a set of inputs: no sale, no invoice, no ledger row,
-        * no inventory or dashboard effect until Save Bill. */}
-      {stage === 'scan' && pendingDraft && (
-        <Card className="p-4 border-gold/40 bg-gold/5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold text-[#0B0E23]">Unfinished bill for {pendingDraft.productCode}</p>
-            <p className="text-[11px] text-slate-600 font-medium mt-0.5">
-              Saved {new Date(pendingDraft.savedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · not yet billed
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" isLoading={restoringDraft} onClick={() => restoreDraft(pendingDraft)}>
-              Continue Bill
-            </Button>
-            <Button size="sm" variant="outline" onClick={discardDraft} disabled={restoringDraft}>
-              Discard
-            </Button>
-          </div>
-        </Card>
-      )}
 
       {(stage === 'scan' || stage === 'loading') && (
         <Card className="p-8 flex flex-col items-center text-center gap-4">
@@ -767,8 +800,11 @@ export default function NewSalePage() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-xs font-bold text-[#0B0E23] truncate">{sc.schemeName}</p>
+                              <p className="text-[11px] text-slate-500 font-medium truncate">{sc.enrollmentNumber}</p>
                               <p className="text-[11px] text-slate-500 font-medium truncate">
-                                {sc.enrollmentNumber} · Available {formatCurrency(sc.availableBalance)}
+                                Total Paid {formatCurrency(sc.totalPaid)} · Used {formatCurrency(sc.totalRedeemed)}
+                                {' · '}
+                                <span className="font-bold text-violet-700">Available {formatCurrency(sc.availableBalance)}</span>
                               </p>
                             </div>
                             <Button
@@ -904,9 +940,20 @@ export default function NewSalePage() {
             </p>
           )}
 
-          <Button className="w-full h-12" disabled={!canConfirm || recalculating} onClick={() => setConfirmOpen(true)}>
-            Save Bill · {formatCurrency(quote.breakdown.finalAmount)}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="h-12"
+              isLoading={savingDraft}
+              disabled={recalculating}
+              onClick={saveAsServerDraft}
+            >
+              {activeDraftId ? 'Update Draft' : 'Save as Draft'}
+            </Button>
+            <Button className="flex-1 h-12" disabled={!canConfirm || recalculating} onClick={() => setConfirmOpen(true)}>
+              Save Bill · {formatCurrency(quote.breakdown.finalAmount)}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1020,7 +1067,7 @@ function PriceComparisonPanel({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center sm:text-left">
         {purchaseCost !== null && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Historical Cost</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Purchase Cost</p>
             <p className="font-mono font-bold text-base text-[#0B0E23]">{formatCurrency(purchaseCost)}</p>
           </div>
         )}
@@ -1053,8 +1100,8 @@ function PriceComparisonPanel({
       {hasPrice && (historicalProfitOrLoss !== null || currentGoldValueProfitOrLoss !== null) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           <ProfitView
-            label="Historical Cost Profit / Loss"
-            hint="vs vendor acquisition cost"
+            label="Profit / Loss (vs Purchase Cost)"
+            hint="vs vendor purchase cost"
             value={historicalProfitOrLoss}
             marginPercent={historicalProfitMarginPercent}
           />

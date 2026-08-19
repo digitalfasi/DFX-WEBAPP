@@ -41,6 +41,11 @@ export interface BillDraft {
   paymentMethod: string;
   paymentStatus: string;
   initialPayment: string;
+  /** Per-enrollment scheme amounts the Admin entered (enrollmentId -> amount
+   *  string). Balances/eligibility are always re-read from the backend on
+   *  restore; only the Admin's chosen amounts come from the draft. Optional so
+   *  a v1 draft written before this field still restores (defaults to {}). */
+  schemeAmounts?: Record<string, string>;
   savedAt: string;
 }
 
