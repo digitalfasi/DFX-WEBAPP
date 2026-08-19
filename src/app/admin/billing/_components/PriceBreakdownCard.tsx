@@ -58,11 +58,24 @@ export function PriceBreakdownCard({
           <span className="font-display font-extrabold text-2xl text-gold-dark">{formatCurrency(breakdown.finalAmount)}</span>
         </div>
         {margin && margin.estimatedGrossMargin !== null && (
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-dashed border-slate-200 text-xs font-bold">
-            <span className="text-slate-500">{margin.estimatedGrossMargin >= 0 ? '🟢 Profit' : '🔴 Loss'}</span>
-            <span className={`font-mono ${margin.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {formatCurrency(Math.abs(margin.estimatedGrossMargin))}
-            </span>
+          <div className="pt-2 mt-1 border-t border-dashed border-slate-200 space-y-2">
+            {margin.purchaseCost !== null && (
+              <div className="flex items-center justify-between text-xs font-medium text-slate-600">
+                <span>Purchase Cost</span>
+                <span className="font-mono">{formatCurrency(margin.purchaseCost)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-slate-500">
+                {margin.estimatedGrossMargin >= 0 ? '🟢 Profit' : '🔴 Loss'}
+                {margin.purchaseCost && margin.purchaseCost > 0
+                  ? ` · ${((margin.estimatedGrossMargin / margin.purchaseCost) * 100).toFixed(1)}%`
+                  : ''}
+              </span>
+              <span className={`font-mono ${margin.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {formatCurrency(Math.abs(margin.estimatedGrossMargin))}
+              </span>
+            </div>
           </div>
         )}
       </div>

@@ -100,7 +100,7 @@ export default function AdminPaymentsPage() {
     setFormError('');
 
     if (!form.enrollmentId.trim()) {
-      setFieldErrors({ enrollmentId: 'Enrollment ID is required' });
+      setFieldErrors({ enrollmentId: 'Enrollment number is required' });
       return;
     }
     if (!form.amount || form.amount <= 0) {
@@ -270,16 +270,16 @@ export default function AdminPaymentsPage() {
           )}
 
           <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Enrollment ID *</label>
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Enrollment Number *</label>
             <Input
               error={!!fieldErrors.enrollmentId}
               value={form.enrollmentId}
               onChange={(e) => setForm((f) => ({ ...f, enrollmentId: e.target.value }))}
-              placeholder="enr_..."
+              placeholder="ENR-260819-7BF03A"
               className="font-mono"
             />
             {fieldErrors.enrollmentId && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.enrollmentId}</p>}
-            <p className="text-[10px] text-slate-400">Find this on the customer&apos;s enrollment in the Enrollments tab.</p>
+            <p className="text-[10px] text-slate-400">Enter the enrollment number shown on the customer&apos;s enrollment in the Enrollments tab.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
