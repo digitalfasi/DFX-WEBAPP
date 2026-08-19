@@ -1165,7 +1165,6 @@ function draftToPayload(d: BillDraftInput): Record<string, unknown> {
   };
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function mapDraft(raw: any): BillDraft {
   return {
     id: raw.id,
@@ -1204,7 +1203,6 @@ function mapDraftListItem(raw: any): BillDraftListItem {
     updatedAt: raw.updated_at,
   };
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export const billingService = {
   /* Vendors */
