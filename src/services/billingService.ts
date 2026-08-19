@@ -21,6 +21,15 @@ export type SalePaymentStatus = PaymentStatus | 'REFUNDED' | 'PARTIALLY_REFUNDED
 /* The SALE lifecycle, independent of the money lifecycle. There is no
  * PARTIALLY_RETURNED state: one sale carries one item in this data model. */
 export type SaleStatus = 'COMPLETED' | 'RETURNED' | 'CANCELLED';
+
+/** One selectable column for the Custom sales export. `financial: true` marks an
+ * Admin/SuperAdmin-only column — the backend never lists it for other roles and
+ * re-checks authorization at export time. */
+export interface SalesExportField {
+  key: string;
+  label: string;
+  financial: boolean;
+}
 export type ReturnType = 'RETURN' | 'CANCELLATION';
 export type InspectionOutcome = 'RESALABLE' | 'DAMAGED';
 
@@ -1382,6 +1391,39 @@ export const billingService = {
       query.set('period', params.period);
     }
     await downloadBlob(`/billing/sales/ca-export.xlsx?${query.toString()}`, 'ca-export.xlsx');
+  },
+
+  /** GET /billing/sales/export-fields — the columns THIS user may export.
+   * Financial fields are only returned for Admin/SuperAdmin (server-decided). */
+  async getSalesExportFields(): Promise<SalesExportField[]> {
+    const res = await apiClient.get<{ fields: SalesExportField[] }>('/billing/sales/export-fields', { auth: true });
+    return res.data.fields;
+  },
+
+  /** GET /billing/sales/custom-export.xlsx — sales export limited to the chosen
+   * field keys. The backend re-authorizes every field, so a request naming a
+   * restricted field simply omits it. */
+  async downloadCustomExport(params: {
+    fields: string[];
+    period?: SalesHistoryPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+    paymentStatus?: SalePaymentStatus;
+    saleStatus?: SaleStatus;
+  }): Promise<void> {
+    const query = new URLSearchParams();
+    query.set('fields', params.fields.join(','));
+    if (params.dateFrom && params.dateTo) {
+      query.set('date_from', params.dateFrom);
+      query.set('date_to', params.dateTo);
+    } else if (params.period) {
+      query.set('period', params.period);
+    }
+    if (params.search) query.set('search', params.search);
+    if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
+    if (params.saleStatus) query.set('sale_status', params.saleStatus);
+    await downloadBlob(`/billing/sales/custom-export.xlsx?${query.toString()}`, 'sales-export.xlsx');
   },
 
   /* Sale return / cancellation. The backend is the only authority on what may

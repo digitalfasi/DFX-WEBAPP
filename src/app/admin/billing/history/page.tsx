@@ -14,6 +14,7 @@ import {
   billingService, Sale, PaymentStatus, PaymentMethod, SalePaymentHistory,
   PAYMENT_METHOD_OPTIONS, SALES_HISTORY_PERIODS, SalesHistoryPeriod,
   SalePaymentStatus, SaleStatus, SaleReturn, SaleReturnPreview, ReturnType,
+  SalesExportField,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
@@ -76,6 +77,14 @@ export default function SalesHistoryPage() {
   const [period, setPeriod] = useState<SalesHistoryPeriod>('this_month');
   const [exporting, setExporting] = useState(false);
 
+  /* Export / Report Builder. CA and Owner reuse the existing dedicated exports;
+   * Custom sends a chosen field set that the backend re-authorizes. */
+  const [exportOpen, setExportOpen] = useState(false);
+  const [reportType, setReportType] = useState<'ca' | 'owner' | 'custom'>('owner');
+  const [exportFields, setExportFields] = useState<SalesExportField[]>([]);
+  const [selectedFieldKeys, setSelectedFieldKeys] = useState<string[]>([]);
+  const CUSTOM_PRESET_KEY = 'dfx.salesExport.customPreset';
+
   const [selected, setSelected] = useState<Sale | null>(null);
   /* Payment ledger for the invoice open in the detail dialog. */
   const [history, setHistory] = useState<SalePaymentHistory | null>(null);
@@ -132,16 +141,63 @@ export default function SalesHistoryPage() {
     loadSales(value);
   };
 
+  const openExport = async () => {
+    setExportOpen(true);
+    if (exportFields.length === 0) {
+      try {
+        const fields = await billingService.getSalesExportFields();
+        setExportFields(fields);
+        // Restore a saved custom preset, keeping only fields this user may pick.
+        let preset: string[] = [];
+        try {
+          const raw = typeof window !== 'undefined' ? window.localStorage.getItem(CUSTOM_PRESET_KEY) : null;
+          if (raw) preset = JSON.parse(raw);
+        } catch { /* ignore malformed preset */ }
+        const allowed = new Set(fields.map((f) => f.key));
+        const restored = preset.filter((k) => allowed.has(k));
+        setSelectedFieldKeys(restored.length ? restored : fields.filter((f) => !f.financial).map((f) => f.key));
+      } catch {
+        setExportFields([]);
+      }
+    }
+  };
+
+  const toggleField = (key: string) => {
+    setSelectedFieldKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const saveCustomPreset = () => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(CUSTOM_PRESET_KEY, JSON.stringify(selectedFieldKeys));
+      }
+    } catch { /* non-fatal */ }
+  };
+
   const handleExport = async () => {
     setExporting(true);
+    const common = {
+      period,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      search: search || undefined,
+      ...tabFilters(statusTab),
+    };
     try {
-      await billingService.downloadSalesHistoryExcel({
-        period,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-        search: search || undefined,
-        ...tabFilters(statusTab),
-      });
+      if (reportType === 'ca') {
+        await billingService.downloadCaExport({
+          period,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+        });
+      } else if (reportType === 'custom') {
+        await billingService.downloadCustomExport({ ...common, fields: selectedFieldKeys });
+      } else {
+        await billingService.downloadSalesHistoryExcel(common);
+      }
+      setExportOpen(false);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not export sales history.');
     } finally {
@@ -364,9 +420,9 @@ export default function SalesHistoryPage() {
             {SALES_HISTORY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </Select>
         </div>
-        <Button variant="outline" onClick={handleExport} isLoading={exporting}>
+        <Button variant="outline" onClick={openExport}>
           <Download className="h-4 w-4 mr-1.5" />
-          Export
+          Export Report
         </Button>
       </div>
 
@@ -776,6 +832,93 @@ export default function SalesHistoryPage() {
             onClick={handleProcessReturn}
           >
             Confirm Return
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* EXPORT / REPORT BUILDER */}
+      <Dialog isOpen={exportOpen} onClose={() => !exporting && setExportOpen(false)} title="Export Report" maxWidth="max-w-lg">
+        <div className="space-y-4 text-xs">
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Report Type</label>
+            <Select value={reportType} onChange={(e) => setReportType(e.target.value as 'ca' | 'owner' | 'custom')}>
+              <option value="ca">CA / Accounting Report</option>
+              <option value="owner">Owner / Admin Report (full)</option>
+              <option value="custom">Custom Report</option>
+            </Select>
+            <p className="text-[10px] text-slate-400">
+              {reportType === 'ca'
+                ? 'Accounting fields only — no internal cost or profit.'
+                : reportType === 'owner'
+                ? 'The full sales history. Cost and profit columns are included only for Admin/SuperAdmin.'
+                : 'Choose exactly which columns to export. Restricted financial columns are only offered to authorized users, and are re-checked on the server.'}
+            </p>
+          </div>
+
+          {reportType === 'custom' && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Fields</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="text-[11px] font-bold text-gold-dark hover:underline"
+                    onClick={() => setSelectedFieldKeys(exportFields.map((f) => f.key))}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[11px] font-bold text-slate-400 hover:underline"
+                    onClick={() => setSelectedFieldKeys([])}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              {exportFields.length === 0 ? (
+                <p className="text-[11px] text-slate-400">Loading available fields…</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                  {exportFields.map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedFieldKeys.includes(f.key)}
+                        onChange={() => toggleField(f.key)}
+                      />
+                      <span className="font-medium text-slate-700">{f.label}</span>
+                      {f.financial && (
+                        <span className="ml-auto text-[9px] font-bold uppercase text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                          Financial
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="text-[11px] font-bold text-gold-dark hover:underline"
+                onClick={saveCustomPreset}
+              >
+                Save these fields as my default
+              </button>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(false)} disabled={exporting}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            isLoading={exporting}
+            disabled={reportType === 'custom' && selectedFieldKeys.length === 0}
+            onClick={handleExport}
+          >
+            <Download className="h-3.5 w-3.5 mr-1.5" /> Export
           </Button>
         </DialogFooter>
       </Dialog>

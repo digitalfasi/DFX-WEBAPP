@@ -827,7 +827,9 @@ function OperationalCards() {
   }, []);
   if (!cards) return null;
   const items = [
-    { label: 'Overdue', value: cards.overdue_enrollments, href: '/admin/enrollments' },
+    // Overdue count is the collections definition (list_overdue_active), so the
+    // card opens the Collections view rather than the raw enrollments list.
+    { label: 'Overdue', value: cards.overdue_enrollments, href: '/admin/collections' },
     { label: 'Pending KYC', value: cards.pending_kyc, href: '/admin/kyc' },
     { label: 'Pending Inspection', value: cards.pending_inspection, href: '/admin/billing/inventory' },
   ];
