@@ -6,6 +6,19 @@ interface BackendPassbookEnrollment {
   joined_date: string;
   status: string;
   maturity_date: string;
+  closure_reason: string | null;
+}
+
+interface BackendPassbookRedemption {
+  amount: number;
+  redeemed_at: string;
+  invoice_number: string;
+}
+
+interface BackendPassbookBalance {
+  total_paid: number;
+  total_redeemed: number;
+  available_balance: number;
 }
 
 interface BackendPassbookScheme {
@@ -39,6 +52,8 @@ interface BackendPassbook {
   scheme: BackendPassbookScheme;
   entries: BackendPassbookEntry[];
   summary: BackendPassbookSummary;
+  redemptions?: BackendPassbookRedemption[];
+  balance?: BackendPassbookBalance | null;
 }
 
 export interface PassbookEntry {
@@ -53,6 +68,18 @@ export interface PassbookEntry {
   remarks: string | null;
 }
 
+export interface PassbookRedemption {
+  amount: number;
+  redeemedAt: string;
+  invoiceNumber: string;
+}
+
+export interface PassbookBalance {
+  totalPaid: number;
+  totalRedeemed: number;
+  availableBalance: number;
+}
+
 export interface Passbook {
   enrollment: {
     id: string;
@@ -60,6 +87,7 @@ export interface Passbook {
     joinedDate: string;
     status: string;
     maturityDate: string;
+    closureReason: string | null;
   };
   scheme: {
     id: string;
@@ -74,6 +102,8 @@ export interface Passbook {
     totalGoldWeight: number;
     entryCount: number;
   };
+  redemptions: PassbookRedemption[];
+  balance: PassbookBalance | null;
 }
 
 function mapPassbook(raw: BackendPassbook): Passbook {
@@ -84,6 +114,7 @@ function mapPassbook(raw: BackendPassbook): Passbook {
       joinedDate: raw.enrollment.joined_date,
       status: raw.enrollment.status,
       maturityDate: raw.enrollment.maturity_date,
+      closureReason: raw.enrollment.closure_reason ?? null,
     },
     scheme: {
       id: raw.scheme.id,
@@ -108,6 +139,18 @@ function mapPassbook(raw: BackendPassbook): Passbook {
       totalGoldWeight: raw.summary.total_gold_weight,
       entryCount: raw.summary.entry_count,
     },
+    redemptions: (raw.redemptions ?? []).map((r) => ({
+      amount: r.amount,
+      redeemedAt: r.redeemed_at,
+      invoiceNumber: r.invoice_number,
+    })),
+    balance: raw.balance
+      ? {
+          totalPaid: raw.balance.total_paid,
+          totalRedeemed: raw.balance.total_redeemed,
+          availableBalance: raw.balance.available_balance,
+        }
+      : null,
   };
 }
 

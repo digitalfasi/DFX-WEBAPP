@@ -115,6 +115,68 @@ export default function PassbookPage() {
             </div>
           </Card>
 
+          {/* Closure / balance summary — only for a non-active enrollment, or
+            * whenever a derived balance is available. Sections render only when
+            * their data exists, so an ACTIVE never-redeemed scheme shows nothing
+            * extra here. */}
+          {(passbook.enrollment.status !== 'ACTIVE' ||
+            (passbook.balance && passbook.balance.totalRedeemed > 0)) && (
+            <Card className="p-4 border-slate-line bg-white shadow-card">
+              <CardContent className="p-0 divide-y divide-slate-line text-xs">
+                <div className="flex justify-between py-2.5">
+                  <span className="text-slate-muted font-medium">Status</span>
+                  <span className="font-bold text-ink">{passbook.enrollment.status}</span>
+                </div>
+                {passbook.enrollment.closureReason && (
+                  <div className="flex justify-between py-2.5 gap-3">
+                    <span className="text-slate-muted font-medium shrink-0">Closure Reason</span>
+                    <span className="font-bold text-ink text-right">{passbook.enrollment.closureReason}</span>
+                  </div>
+                )}
+                {passbook.balance && (
+                  <>
+                    <div className="flex justify-between py-2.5">
+                      <span className="text-slate-muted font-medium">Redeemed</span>
+                      <span className="font-bold text-ink font-mono">{formatCurrency(passbook.balance.totalRedeemed)}</span>
+                    </div>
+                    <div className="flex justify-between py-2.5">
+                      <span className="text-slate-muted font-medium">Remaining Balance</span>
+                      <span className="font-bold text-gold font-mono">{formatCurrency(passbook.balance.availableBalance)}</span>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Redemption history — one row per time scheme balance was applied to
+            * a bill (or restored by a return, shown as a positive credit). */}
+          {passbook.redemptions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase font-bold text-slate-muted px-1">Scheme Redemptions</p>
+              {passbook.redemptions.map((r, i) => {
+                const restored = r.amount < 0;
+                return (
+                  <Card key={`${r.invoiceNumber}-${i}`} className="p-3.5 border-slate-line bg-white">
+                    <CardContent className="p-0 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-ink block">
+                          {restored ? 'Credit Restored' : 'Redeemed for Purchase'}
+                        </span>
+                        <span className="text-[10px] text-slate-muted">
+                          Invoice {r.invoiceNumber} · {new Date(r.redeemedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                        </span>
+                      </div>
+                      <span className={`font-bold font-mono ${restored ? 'text-success' : 'text-ink'}`}>
+                        {restored ? '+' : '−'}{formatCurrency(Math.abs(r.amount))}
+                      </span>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
           {/* Transaction History Entries */}
           {passbook.entries.length === 0 ? (
             <EmptyState
