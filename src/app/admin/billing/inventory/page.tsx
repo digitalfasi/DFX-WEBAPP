@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck, Scale } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
@@ -67,6 +67,7 @@ const emptyForm: InventoryItemFormData = {
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalGoldWeightGrams, setTotalGoldWeightGrams] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -148,6 +149,7 @@ export default function InventoryPage() {
       });
       setItems(res.items);
       setTotal(res.total);
+      setTotalGoldWeightGrams(res.totalGoldWeightGrams);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load inventory.');
     } finally {
@@ -300,6 +302,23 @@ export default function InventoryPage() {
           </Button>
         </div>
       </div>
+
+      {/* KPI — Total Gold in Inventory (server-side aggregate across ALL
+       * matching rows, not just the current page). */}
+      {!loading && !loadError && items.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+              <Scale className="h-5 w-5 text-gold" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Gold in Inventory</p>
+              <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldWeightGrams)}</p>
+              <p className="text-[10px] text-slate-400 font-medium">{total} item{total === 1 ? '' : 's'} matching filters</p>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-sm">
