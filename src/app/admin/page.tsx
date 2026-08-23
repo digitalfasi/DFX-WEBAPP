@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ShoppingBag, UserPlus, CreditCard, FilePlus2, Coins, Wallet, LayoutGrid,
@@ -129,6 +129,18 @@ export default function AdminDashboardPage() {
   const [collTrend, setCollTrend] = useState<PaymentSummary | null>(null);
   const [schemePeriod, setSchemePeriod] = useState<ReportPeriod>('this_week');
 
+  // Per-period caches — switching back to an already-fetched period is instant
+  // and issues no duplicate request. Fetching flags drive a small chart-only
+  // skeleton (never a full-page loader). Stale responses are dropped by
+  // comparing the resolved period against the latest requested one.
+  const salesTrendCache = useRef<Partial<Record<ReportPeriod, SalesTrend>>>({});
+  const salesCatsCache = useRef<Partial<Record<ReportPeriod, SalesByCategory>>>({});
+  const collTrendCache = useRef<Partial<Record<ReportPeriod, PaymentSummary>>>({});
+  const bizReqRef = useRef<ReportPeriod>('this_week');
+  const schemeReqRef = useRef<ReportPeriod>('this_week');
+  const [bizFetching, setBizFetching] = useState(false);
+  const [schemeFetching, setSchemeFetching] = useState(false);
+
   const load = async () => {
     setLoading(true); setError('');
     try {
@@ -170,12 +182,32 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    reportService.getSalesTrend({ period: bizPeriod }).then(setSalesTrend).catch(() => setSalesTrend(null));
-    reportService.getSalesByCategory({ period: bizPeriod }).then(setSalesCats).catch(() => setSalesCats(null));
+    bizReqRef.current = bizPeriod;
+    const cachedT = salesTrendCache.current[bizPeriod];
+    const cachedC = salesCatsCache.current[bizPeriod];
+    if (cachedT && cachedC) { setSalesTrend(cachedT); setSalesCats(cachedC); setBizFetching(false); return; }
+    setBizFetching(true);
+    Promise.all([
+      reportService.getSalesTrend({ period: bizPeriod }).catch(() => null),
+      reportService.getSalesByCategory({ period: bizPeriod }).catch(() => null),
+    ]).then(([t, c]) => {
+      if (bizReqRef.current !== bizPeriod) return; // stale — a newer period won
+      if (t) { salesTrendCache.current[bizPeriod] = t; setSalesTrend(t); } else setSalesTrend(null);
+      if (c) { salesCatsCache.current[bizPeriod] = c; setSalesCats(c); } else setSalesCats(null);
+      setBizFetching(false);
+    });
   }, [bizPeriod]);
 
   useEffect(() => {
-    reportService.getPaymentSummary({ period: schemePeriod }).then(setCollTrend).catch(() => setCollTrend(null));
+    schemeReqRef.current = schemePeriod;
+    const cached = collTrendCache.current[schemePeriod];
+    if (cached) { setCollTrend(cached); setSchemeFetching(false); return; }
+    setSchemeFetching(true);
+    reportService.getPaymentSummary({ period: schemePeriod }).catch(() => null).then((r) => {
+      if (schemeReqRef.current !== schemePeriod) return; // stale
+      if (r) { collTrendCache.current[schemePeriod] = r; setCollTrend(r); } else setCollTrend(null);
+      setSchemeFetching(false);
+    });
   }, [schemePeriod]);
 
   const latestGold = goldTrend?.trend.length ? goldTrend.trend[goldTrend.trend.length - 1].rate24k : null;
@@ -331,7 +363,9 @@ export default function AdminDashboardPage() {
                 <CardTitle className="text-xs font-bold text-[#0B0E23]">Sales Trend</CardTitle>
                 <PeriodTabs value={bizPeriod} onChange={setBizPeriod} accent={BUSINESS_BLUE} />
               </div>
-              {salesChart.length === 0 ? (
+              {bizFetching && salesChart.length === 0 ? (
+                <ChartSkeleton />
+              ) : salesChart.length === 0 ? (
                 <EmptyChart text="No sales in this period" />
               ) : (
                 <div className="h-40 w-full">
@@ -352,7 +386,9 @@ export default function AdminDashboardPage() {
             {/* Top Categories */}
             <Card className="p-3 bg-white border-slate-200 shadow-xs">
               <CardTitle className="text-xs font-bold text-[#0B0E23] mb-2">Top Selling Categories</CardTitle>
-              {catDonut.length === 0 ? (
+              {bizFetching && catDonut.length === 0 ? (
+                <ChartSkeleton />
+              ) : catDonut.length === 0 ? (
                 <EmptyChart text="No category sales yet" />
               ) : (
                 <div className="flex items-center gap-4">
@@ -432,7 +468,9 @@ export default function AdminDashboardPage() {
                 <CardTitle className="text-xs font-bold text-[#0B0E23]">Collections Trend</CardTitle>
                 <PeriodTabs value={schemePeriod} onChange={setSchemePeriod} accent={SCHEME_GOLD} />
               </div>
-              {collChart.length === 0 || collChart.every((d) => !d.y) ? (
+              {schemeFetching && collChart.length === 0 ? (
+                <ChartSkeleton />
+              ) : collChart.length === 0 || collChart.every((d) => !d.y) ? (
                 <EmptyChart text="No collections in this period" />
               ) : (
                 <div className="h-40 w-full">
@@ -608,6 +646,18 @@ function QuickActionsPanel({ actions }: { actions: { title: string; icon: React.
 
 function EmptyChart({ text }: { text: string }) {
   return <div className="h-28 w-full flex items-center justify-center text-xs text-slate-400 font-medium">{text}</div>;
+}
+
+// Chart-only skeleton — shown while a period's data is fetching, so switching
+// periods never blanks the whole dashboard or flashes a false "no data" state.
+function ChartSkeleton() {
+  return (
+    <div className="h-40 w-full flex items-end gap-1.5 px-1 animate-pulse" aria-hidden>
+      {[40, 65, 50, 80, 55, 90, 70].map((h, i) => (
+        <div key={i} className="flex-1 bg-slate-100 rounded-t" style={{ height: `${h}%` }} />
+      ))}
+    </div>
+  );
 }
 
 function PanelList({ title, items, emptyText, viewAllHref }: { title: string; items: NotificationItem[]; emptyText: string; viewAllHref: string }) {
