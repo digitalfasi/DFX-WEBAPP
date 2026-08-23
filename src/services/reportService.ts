@@ -311,7 +311,139 @@ function mapDashboardSummary(raw: BackendDashboardSummary): DashboardSummary {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Sales Trend + Sales by Category — Admin Dashboard (Module 13)        */
+/* ------------------------------------------------------------------ */
+
+interface BackendSalesTrendPoint {
+  period_label: string;
+  total_amount: number;
+  sale_count: number;
+}
+interface BackendSalesTrendResponse {
+  range: BackendDateRange;
+  trend: BackendSalesTrendPoint[];
+}
+export interface SalesTrendPoint {
+  label: string;
+  totalAmount: number;
+  saleCount: number;
+}
+export interface SalesTrend {
+  range: DateRange;
+  trend: SalesTrendPoint[];
+}
+
+interface BackendCategorySalesItem {
+  category: string;
+  total_sales: number;
+  bill_count: number;
+  percentage: number;
+}
+interface BackendSalesByCategoryResponse {
+  range: BackendDateRange;
+  total_sales: number;
+  categories: BackendCategorySalesItem[];
+}
+export interface CategorySalesItem {
+  category: string;
+  totalSales: number;
+  billCount: number;
+  percentage: number;
+}
+export interface SalesByCategory {
+  range: DateRange;
+  totalSales: number;
+  categories: CategorySalesItem[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Insights (Phase 10) — data-grounded, birthday reminder etc.         */
+/* ------------------------------------------------------------------ */
+
+export interface InsightItem {
+  id: string;
+  category: string;
+  title: string;
+  detail: string;
+  severity: 'info' | 'positive' | 'warning';
+  evidence: Record<string, unknown>;
+}
+interface BackendInsightsResponse {
+  range: BackendDateRange;
+  module: 'business' | 'scheme';
+  data_available: boolean;
+  insights: InsightItem[];
+  note: string | null;
+}
+export interface InsightsResult {
+  range: DateRange;
+  module: 'business' | 'scheme';
+  dataAvailable: boolean;
+  insights: InsightItem[];
+  note: string | null;
+}
+function mapInsights(raw: BackendInsightsResponse): InsightsResult {
+  return {
+    range: mapRange(raw.range),
+    module: raw.module,
+    dataAvailable: raw.data_available,
+    insights: raw.insights ?? [],
+    note: raw.note,
+  };
+}
+
 export const reportService = {
+  /** GET /api/v1/reports/sales-trend (Admin) — Business sales time-series. */
+  async getSalesTrend(params: ReportRangeParams = {}): Promise<SalesTrend> {
+    const res = await apiClient.get<{ report: BackendSalesTrendResponse }>(
+      `/reports/sales-trend${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      trend: r.trend.map((t) => ({ label: t.period_label, totalAmount: t.total_amount, saleCount: t.sale_count })),
+    };
+  },
+
+  /** GET /api/v1/reports/sales-by-category (Admin) — Top Selling Categories donut. */
+  async getSalesByCategory(params: ReportRangeParams = {}): Promise<SalesByCategory> {
+    const res = await apiClient.get<{ report: BackendSalesByCategoryResponse }>(
+      `/reports/sales-by-category${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      totalSales: r.total_sales,
+      categories: r.categories.map((c) => ({
+        category: c.category,
+        totalSales: c.total_sales,
+        billCount: c.bill_count,
+        percentage: c.percentage,
+      })),
+    };
+  },
+
+  /** GET /api/v1/reports/insights/business (Admin) — includes birthday insight (Phase 10). */
+  async getBusinessInsights(params: ReportRangeParams = {}): Promise<InsightsResult> {
+    const res = await apiClient.get<{ insights: BackendInsightsResponse }>(
+      `/reports/insights/business${buildQuery(params)}`,
+      { auth: true }
+    );
+    return mapInsights(res.data.insights);
+  },
+
+  /** GET /api/v1/reports/insights/scheme (Admin) — includes birthday insight (Phase 10). */
+  async getSchemeInsights(params: ReportRangeParams = {}): Promise<InsightsResult> {
+    const res = await apiClient.get<{ insights: BackendInsightsResponse }>(
+      `/reports/insights/scheme${buildQuery(params)}`,
+      { auth: true }
+    );
+    return mapInsights(res.data.insights);
+  },
+
   /** GET /api/v1/reports/payment-summary (Admin) */
   async getPaymentSummary(params: ReportRangeParams = {}): Promise<PaymentSummary> {
     const res = await apiClient.get<{ summary: BackendPaymentSummary }>(
@@ -424,6 +556,9 @@ export interface DashboardCards {
   overdue_enrollments: number;
   pending_kyc: number;
   pending_inspection: number;
+  /** Sellable inventory count (IN_STOCK). The data model has no quantity/reorder
+   *  threshold, so there is no true "low stock" metric — this is the honest one. */
+  items_in_stock: number;
 }
 
 export const dashboardCardsService = {
