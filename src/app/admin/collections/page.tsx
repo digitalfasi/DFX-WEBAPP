@@ -1,90 +1,386 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/form-controls';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { AlarmClock } from 'lucide-react';
+import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { formatCurrency } from '@/lib/formatters';
+import {
+  AlarmClock,
+  Search,
+  RotateCcw,
+  Wallet,
+  CheckCircle2,
+  AlertTriangle,
+  Users,
+  Eye,
+  CircleDot,
+} from 'lucide-react';
+import { enrollmentService, AdminEnrollment } from '@/services/enrollmentService';
 import { collectionsService, CollectionItem } from '@/services/reportService';
+import { passbookService, Passbook } from '@/services/passbookService';
 import { ApiError } from '@/lib/apiClient';
 
+/* ------------------------------------------------------------------ */
+/* Derived row model — real backend fields only, no fabrication.       */
+/* ------------------------------------------------------------------ */
+
+type CollStatus = 'ON_TRACK' | 'OVERDUE' | 'COMPLETED';
+
+interface Row {
+  e: AdminEnrollment;
+  coll?: CollectionItem;      // present only for overdue enrollments (/collections)
+  monthly: number;
+  totalInstallments: number;
+  paidInstallments: number;
+  totalDue: number;
+  totalPaid: number;          // schedule estimate (monthly × paid); passbook has exact
+  outstanding: number;
+  status: CollStatus;
+  overdueDays: number | null;
+}
+
+function classify(e: AdminEnrollment, coll?: CollectionItem): CollStatus {
+  if (e.status !== 'ACTIVE') return 'COMPLETED'; // COMPLETED/REDEEMED/CLOSED/CANCELLED
+  if (coll) return 'OVERDUE'; // /collections lists overdue enrollments only
+  return 'ON_TRACK';
+}
+
+function buildRow(e: AdminEnrollment, coll?: CollectionItem): Row {
+  const monthly = e.monthlyAmount || 0;
+  const totalInstallments = e.durationMonths || 0;
+  const paidInstallments = Math.min(e.monthsPaid || 0, totalInstallments || e.monthsPaid || 0);
+  const totalDue = monthly * totalInstallments;
+  const totalPaid = monthly * paidInstallments;
+  const outstanding = Math.max(0, totalDue - totalPaid);
+  return {
+    e,
+    coll,
+    monthly,
+    totalInstallments,
+    paidInstallments,
+    totalDue,
+    totalPaid,
+    outstanding,
+    status: classify(e, coll),
+    overdueDays: coll?.overdue_days ?? null,
+  };
+}
+
+const STATUS_META: Record<CollStatus, { label: string; variant: 'success' | 'danger' | 'neutral' }> = {
+  ON_TRACK: { label: 'On Track', variant: 'success' },
+  OVERDUE: { label: 'Overdue', variant: 'danger' },
+  COMPLETED: { label: 'Completed', variant: 'neutral' },
+};
+
+function addMonths(iso: string, n: number): Date {
+  const d = new Date(iso);
+  d.setMonth(d.getMonth() + n);
+  return d;
+}
+const monthLabel = (d: Date) => d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+const dateLabel = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+/* ------------------------------------------------------------------ */
+/* Timeline — schedule (joinedDate + i months) vs monthsPaid + today.  */
+/* ------------------------------------------------------------------ */
+
+type SlotState = 'PAID' | 'OVERDUE' | 'UPCOMING';
+interface Slot { label: string; amount: number; state: SlotState; }
+
+function buildTimeline(row: Row): Slot[] {
+  const { e, monthly, totalInstallments, paidInstallments } = row;
+  const now = new Date();
+  const slots: Slot[] = [];
+  for (let i = 0; i < totalInstallments; i++) {
+    const due = addMonths(e.joinedDate, i);
+    let state: SlotState;
+    if (i < paidInstallments) state = 'PAID';
+    else if (due < now) state = 'OVERDUE';
+    else state = 'UPCOMING';
+    slots.push({ label: monthLabel(due), amount: monthly, state });
+  }
+  return slots.reverse(); // newest first, like the example (Aug on top)
+}
+
+const SLOT_STYLE: Record<SlotState, { chip: string; text: string; label: string }> = {
+  PAID: { chip: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', label: 'Paid' },
+  OVERDUE: { chip: 'bg-red-50 border-red-200', text: 'text-red-700', label: 'Overdue' },
+  UPCOMING: { chip: 'bg-slate-50 border-slate-200', text: 'text-slate-500', label: 'Upcoming' },
+};
+
+/* ================================================================== */
+
+const STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'ON_TRACK', label: 'On Track' },
+  { value: 'OVERDUE', label: 'Overdue' },
+  { value: 'COMPLETED', label: 'Completed' },
+];
+
 export default function AdminCollectionsPage() {
-  const [rows, setRows] = useState<CollectionItem[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('ALL');
+
+  // detail dialog + lazy passbook cache
+  const [openRow, setOpenRow] = useState<Row | null>(null);
+  const [passbook, setPassbook] = useState<Passbook | null>(null);
+  const [pbLoading, setPbLoading] = useState(false);
+  const [pbError, setPbError] = useState('');
+  const pbCache = useRef<Record<string, Passbook>>({});
 
   const load = async () => {
     setLoading(true);
     setErr('');
     try {
-      setRows(await collectionsService.getCollections());
+      const [enrollments, collections] = await Promise.all([
+        enrollmentService.getAdminEnrollments(),
+        collectionsService.getCollections(),
+      ]);
+      const overdueMap = new Map(collections.map((c) => [c.enrollment_id, c]));
+      setRows(enrollments.map((e) => buildRow(e, overdueMap.get(e.id))));
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Could not load collections.');
     } finally {
       setLoading(false);
     }
   };
-
   useEffect(() => { load(); }, []);
 
+  const openDetail = async (row: Row) => {
+    setOpenRow(row);
+    setPbError('');
+    const cached = pbCache.current[row.e.id];
+    if (cached) { setPassbook(cached); return; }
+    setPassbook(null);
+    setPbLoading(true);
+    try {
+      const pb = await passbookService.getAdminPassbook(row.e.id);
+      pbCache.current[row.e.id] = pb;
+      setPassbook(pb);
+    } catch (e) {
+      setPbError(e instanceof ApiError ? e.message : 'Could not load payment history.');
+    } finally {
+      setPbLoading(false);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (status !== 'ALL' && r.status !== status) return false;
+      if (!q) return true;
+      return (
+        (r.e.customerName || '').toLowerCase().includes(q) ||
+        (r.e.schemeName || '').toLowerCase().includes(q) ||
+        r.e.enrollmentNumber.toLowerCase().includes(q)
+      );
+    });
+  }, [rows, search, status]);
+
+  const kpis = useMemo(() => {
+    const active = rows.filter((r) => r.e.status === 'ACTIVE');
+    return {
+      total: rows.length,
+      onTrack: rows.filter((r) => r.status === 'ON_TRACK').length,
+      overdue: rows.filter((r) => r.status === 'OVERDUE').length,
+      outstanding: active.reduce((a, r) => a + r.outstanding, 0),
+    };
+  }, [rows]);
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 font-body">
+    <div className="space-y-5 animate-in fade-in duration-300 font-body">
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h1 className="font-display font-extrabold text-2xl text-[#0B0E23]">Collections</h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Scheme installments 1–15 days overdue. Reminders are sent to the customer app; a paid installment stops them automatically.
+            Full scheme collection status per enrollment — installments paid, outstanding and overdue timeline.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={load} isLoading={loading}>Refresh</Button>
       </div>
 
-      {loading && <Skeleton className="h-64 w-full" />}
+      {/* KPI CARDS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard icon={<Users className="w-[18px] h-[18px] text-slate-600" />} tint="bg-slate-100" label="Total Enrollments" value={kpis.total.toLocaleString('en-IN')} loading={loading} />
+        <KpiCard icon={<CheckCircle2 className="w-[18px] h-[18px] text-emerald-600" />} tint="bg-emerald-50" label="On Track" value={kpis.onTrack.toLocaleString('en-IN')} loading={loading} />
+        <KpiCard icon={<AlertTriangle className="w-[18px] h-[18px] text-red-600" />} tint="bg-red-50" label="Overdue" value={kpis.overdue.toLocaleString('en-IN')} loading={loading} />
+        <KpiCard icon={<Wallet className="w-[18px] h-[18px] text-gold-dark" />} tint="bg-gold/10" label="Outstanding (Active)" value={formatCurrency(kpis.outstanding)} loading={loading} />
+      </div>
+
+      {/* TOOLBAR */}
+      <Card className="p-3 bg-white border-slate-200 shadow-xs">
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer, scheme, enrollment no..." className="pl-9 h-9" />
+          </div>
+          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 w-40">
+            {STATUS_FILTERS.map((s) => (<option key={s.value} value={s.value}>{s.label}</option>))}
+          </Select>
+          <Button size="sm" variant="outline" className="h-9" onClick={() => { setSearch(''); setStatus('ALL'); }}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Clear
+          </Button>
+        </div>
+      </Card>
+
+      {loading && <Skeleton className="h-72 w-full rounded-2xl" />}
+
       {!loading && err && (
         <Card className="p-4 border-red-200 bg-red-50/60">
           <p className="text-xs font-medium text-red-700">{err}</p>
           <Button size="sm" variant="outline" className="mt-3" onClick={load}>Retry</Button>
         </Card>
       )}
+
       {!loading && !err && rows.length === 0 && (
-        <EmptyState icon={<AlarmClock className="h-7 w-7 text-gold" />} title="No overdue collections"
-          description="No scheme installment is currently 1–15 days overdue." />
+        <EmptyState icon={<AlarmClock className="h-7 w-7 text-gold" />} title="No enrollments" description="No scheme enrollments to show yet." />
       )}
+
       {!loading && !err && rows.length > 0 && (
         <Card className="bg-white border-slate-200 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
-                  <th className="p-4">Customer</th>
-                  <th className="p-4">Scheme</th>
-                  <th className="p-4 text-center">Due Date</th>
-                  <th className="p-4 text-center">Overdue</th>
-                  <th className="p-4 text-center">Reminders</th>
-                  <th className="p-4">Phone</th>
+                  <th className="p-3.5">Customer</th>
+                  <th className="p-3.5">Scheme</th>
+                  <th className="p-3.5 text-right">Installment</th>
+                  <th className="p-3.5 text-center">Paid</th>
+                  <th className="p-3.5 text-right">Total Paid</th>
+                  <th className="p-3.5 text-right">Outstanding</th>
+                  <th className="p-3.5 text-center">Next Due</th>
+                  <th className="p-3.5 text-center">Overdue</th>
+                  <th className="p-3.5 text-center">Status</th>
+                  <th className="p-3.5 text-center">Timeline</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {rows.map((r) => (
-                  <tr key={r.enrollment_id} className="hover:bg-slate-50/80">
-                    <td className="p-4 font-bold text-[#0B0E23]">{r.customer_name || '—'}
-                      <span className="block text-[10px] text-slate-400 font-mono">{r.customer_code || r.enrollment_number}</span></td>
-                    <td className="p-4">{r.scheme_name || '—'}</td>
-                    <td className="p-4 text-center">{r.due_date ? new Date(r.due_date).toLocaleDateString('en-IN') : '—'}</td>
-                    <td className="p-4 text-center">
-                      <Badge variant={(r.overdue_days ?? 0) >= 10 ? 'danger' : 'warn'}>{r.overdue_days} d</Badge>
-                    </td>
-                    <td className="p-4 text-center font-mono">{r.reminders_sent}</td>
-                    <td className="p-4 text-[11px] text-slate-500">{r.customer_phone || '—'}</td>
-                  </tr>
-                ))}
+                {filtered.map((r) => {
+                  const sm = STATUS_META[r.status];
+                  return (
+                    <tr key={r.e.id} className="hover:bg-slate-50/80 transition-colors cursor-pointer" onClick={() => openDetail(r)}>
+                      <td className="p-3.5">
+                        <div className="font-bold text-[#0B0E23]">{r.e.customerName || '—'}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">{r.e.enrollmentNumber}</div>
+                      </td>
+                      <td className="p-3.5">{r.e.schemeName || '—'}</td>
+                      <td className="p-3.5 text-right font-mono">{formatCurrency(r.monthly)}</td>
+                      <td className="p-3.5 text-center font-semibold">{r.paidInstallments}/{r.totalInstallments}</td>
+                      <td className="p-3.5 text-right font-mono text-emerald-700">{formatCurrency(r.totalPaid)}</td>
+                      <td className="p-3.5 text-right font-mono text-red-600">{r.outstanding > 0 ? formatCurrency(r.outstanding) : '—'}</td>
+                      <td className="p-3.5 text-center text-slate-600">{r.e.nextDueDate ? dateLabel(r.e.nextDueDate) : '—'}</td>
+                      <td className="p-3.5 text-center">
+                        {r.overdueDays != null ? (
+                          <Badge variant={r.overdueDays >= 10 ? 'danger' : 'warn'} className="text-[10px]">{r.overdueDays}d</Badge>
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="p-3.5 text-center"><Badge variant={sm.variant} className="text-[10px]" dot>{sm.label}</Badge></td>
+                      <td className="p-3.5 text-center">
+                        <button onClick={(ev) => { ev.stopPropagation(); openDetail(r); }} className="p-1.5 text-slate-400 hover:text-gold hover:bg-gold/10 rounded-lg transition-colors" title="View timeline">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {filtered.length === 0 && <div className="p-8 text-center text-xs text-slate-400 font-medium">No enrollments match the current filters.</div>}
         </Card>
       )}
+
+      {/* DETAIL — payment timeline (lazy passbook) */}
+      <Dialog isOpen={!!openRow} onClose={() => setOpenRow(null)} title={openRow ? `${openRow.e.customerName || 'Customer'} — ${openRow.e.schemeName || 'Scheme'}` : ''}>
+        {openRow && (
+          <div className="space-y-4 text-xs">
+            {/* summary strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <MiniStat label="Installment" value={formatCurrency(openRow.monthly)} />
+              <MiniStat label="Paid" value={`${openRow.paidInstallments}/${openRow.totalInstallments}`} />
+              <MiniStat
+                label="Total Paid"
+                value={formatCurrency(passbook?.balance?.totalPaid ?? passbook?.summary.totalAmountPaid ?? openRow.totalPaid)}
+              />
+              <MiniStat label="Outstanding" value={formatCurrency(openRow.outstanding)} tone="danger" />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500 font-semibold">
+                Last payment:{' '}
+                <span className="text-[#0B0E23] font-bold">
+                  {passbook && passbook.entries.length > 0 ? dateLabel(passbook.entries[passbook.entries.length - 1].entryDate) : '—'}
+                </span>
+              </span>
+              <span className="text-slate-400">Enrollment {openRow.e.enrollmentNumber}</span>
+            </div>
+
+            {/* timeline */}
+            <div>
+              <div className="flex items-center gap-2 mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <CircleDot className="w-3.5 h-3.5" /> Payment Timeline
+              </div>
+              {pbLoading && <Skeleton className="h-40 w-full" />}
+              {!pbLoading && pbError && <p className="text-red-600 font-medium">{pbError}</p>}
+              {!pbLoading && (
+                <div className="max-h-72 overflow-y-auto pr-1 space-y-1.5">
+                  {buildTimeline(openRow).map((s, i) => {
+                    const st = SLOT_STYLE[s.state];
+                    return (
+                      <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${st.chip}`}>
+                        <span className="font-bold text-[#0B0E23]">{s.label}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={`font-mono ${s.state === 'PAID' ? 'text-emerald-700' : 'text-slate-500'}`}>{formatCurrency(s.amount)}</span>
+                          <span className={`text-[10px] font-extrabold uppercase ${st.text} w-16 text-right`}>{st.label}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {openRow.totalInstallments === 0 && <p className="text-slate-400">No schedule available for this enrollment.</p>}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400 mt-2">
+                Timeline derived from the enrollment schedule (join date + monthly cadence) and installments paid. Paid totals come from the passbook.
+              </p>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpenRow(null)}>Close</Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+
+const KpiCard: React.FC<{ icon: React.ReactNode; tint: string; label: string; value: string; loading?: boolean }> = ({ icon, tint, label, value, loading }) => (
+  <Card className="p-4 bg-white border-slate-200 shadow-xs">
+    <div className="flex items-start gap-3">
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${tint}`}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold text-slate-500 truncate">{label}</p>
+        {loading ? <Skeleton className="h-6 w-20 mt-1" /> : <p className="font-display font-extrabold text-lg text-[#0B0E23] leading-tight">{value}</p>}
+      </div>
+    </div>
+  </Card>
+);
+
+const MiniStat: React.FC<{ label: string; value: string; tone?: 'danger' }> = ({ label, value, tone }) => (
+  <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2">
+    <p className="text-[10px] font-bold text-slate-400 uppercase truncate">{label}</p>
+    <p className={`font-display font-extrabold text-sm ${tone === 'danger' ? 'text-red-600' : 'text-[#0B0E23]'}`}>{value}</p>
+  </div>
+);

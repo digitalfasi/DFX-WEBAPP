@@ -24,7 +24,7 @@ import { GlobalSearch } from '@/components/dashboard/GlobalSearch';
 import { NotificationBell, NotificationItem } from '@/components/dashboard/NotificationBell';
 import {
   reportService, ReportPeriod, DashboardSummary, PaymentSummary, SchemeSummaryReport,
-  GoldRateTrendReport, SalesTrend, SalesByCategory, InsightsResult,
+  GoldRateTrendReport, SalesTrend, SalesByCategory, InsightsResult, EnrollmentSummary,
   dashboardCardsService, DashboardCards, collectionsService, CollectionItem,
 } from '@/services/reportService';
 import { billingService, BillingDashboardSummary, Sale, SalePaymentStatus } from '@/services/billingService';
@@ -35,12 +35,41 @@ const SCHEME_GOLD = '#E8A33D';
 const DONUT_BUSINESS = ['#2C6FBD', '#60A3E6', '#0EA5E9', '#93C5FD', '#1E3A8A', '#38BDF8'];
 const DONUT_SCHEME = ['#E8A33D', '#F59E0B', '#B45309', '#FCD34D', '#92400E', '#FBBF24'];
 
-const PERIOD_TABS: { value: ReportPeriod; label: string }[] = [
+type RangeSel = ReportPeriod | 'custom';
+const PERIOD_TABS: { value: RangeSel; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'this_week', label: 'This Week' },
   { value: 'this_month', label: 'This Month' },
   { value: 'this_year', label: 'This Year' },
+  { value: 'custom', label: 'Custom' },
 ];
+
+type BizMetric = 'sales' | 'profit' | 'gold';
+const BIZ_METRICS: { value: BizMetric; label: string }[] = [
+  { value: 'sales', label: 'Overall Sales' },
+  { value: 'profit', label: 'Profit' },
+  { value: 'gold', label: 'Gold Sold' },
+];
+type SchemeMetric = 'collections' | 'maturity' | 'enrollments' | 'today_collection';
+const SCHEME_METRICS: { value: SchemeMetric; label: string }[] = [
+  { value: 'collections', label: 'Collections' },
+  { value: 'maturity', label: 'Maturity' },
+  { value: 'enrollments', label: 'Enrollments' },
+  { value: 'today_collection', label: "Today's Collection" },
+];
+
+/** Range selector → report params. Custom needs both dates applied. */
+function rangeParams(sel: RangeSel, custom: { from: string; to: string }): { period?: ReportPeriod; dateFrom?: string; dateTo?: string } | null {
+  if (sel === 'custom') {
+    if (!custom.from || !custom.to) return null;
+    return { dateFrom: custom.from, dateTo: custom.to };
+  }
+  return { period: sel };
+}
+function rangeKey(sel: RangeSel, custom: { from: string; to: string }): string {
+  return sel === 'custom' ? `c:${custom.from}:${custom.to}` : sel;
+}
+function fmtGrams(g: number): string { return `${g.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} g`; }
 
 const SALE_STATUS_BADGE: Record<string, 'success' | 'pending' | 'warn' | 'danger' | 'neutral'> = {
   PAID: 'success', PARTIAL: 'warn', PENDING: 'pending', REFUNDED: 'neutral', PARTIALLY_REFUNDED: 'neutral',
@@ -79,9 +108,9 @@ function KpiCard({ kpi }: { kpi: KpiSpec }) {
   );
 }
 
-function PeriodTabs({ value, onChange, accent }: { value: ReportPeriod; onChange: (p: ReportPeriod) => void; accent: string }) {
+function PeriodTabs({ value, onChange, accent }: { value: RangeSel; onChange: (p: RangeSel) => void; accent: string }) {
   return (
-    <div className="flex items-center gap-1 bg-slate-50 p-0.5 rounded-lg border border-slate-200">
+    <div className="flex items-center gap-1 bg-slate-50 p-0.5 rounded-lg border border-slate-200 flex-wrap">
       {PERIOD_TABS.map((t) => (
         <button key={t.value} onClick={() => onChange(t.value)}
           className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
@@ -94,14 +123,49 @@ function PeriodTabs({ value, onChange, accent }: { value: ReportPeriod; onChange
   );
 }
 
+// Native <select> styled to the DFX card language for a chart metric switch.
+function MetricSelect<T extends string>({ value, onChange, options, accent }: {
+  value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; accent: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as T)}
+      className="text-[10px] font-bold px-2 py-1 rounded-lg border border-slate-200 bg-white text-[#0B0E23] outline-none focus:border-slate-300"
+      style={{ borderLeft: `3px solid ${accent}` }}>
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+// Custom range picker: From / To / Apply. Labeled inputs, no bare placeholders.
+function CustomRange({ value, onApply, accent }: { value: { from: string; to: string }; onApply: (r: { from: string; to: string }) => void; accent: string }) {
+  const [from, setFrom] = useState(value.from);
+  const [to, setTo] = useState(value.to);
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+      <div className="flex items-center gap-1.5 h-8 px-2 rounded-lg border border-slate-200 bg-white">
+        <span className="text-[9px] font-bold uppercase text-slate-400">From</span>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="text-[11px] text-slate-600 bg-transparent outline-none w-[7rem]" />
+      </div>
+      <div className="flex items-center gap-1.5 h-8 px-2 rounded-lg border border-slate-200 bg-white">
+        <span className="text-[9px] font-bold uppercase text-slate-400">To</span>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-[11px] text-slate-600 bg-transparent outline-none w-[7rem]" />
+      </div>
+      <button onClick={() => from && to && onApply({ from, to })} disabled={!from || !to}
+        className="h-8 px-3 rounded-lg text-[11px] font-bold text-white disabled:opacity-40" style={{ backgroundColor: accent }}>
+        Apply
+      </button>
+    </div>
+  );
+}
+
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { toggle } = useMobileNav();
-  const [toast, setToast] = useState<string | null>(null);
   const handleLogout = async () => { await logout(); router.push('/auth/login'); };
+  const [toast, setToast] = useState<string | null>(null);
 
   const [todayLabel, setTodayLabel] = useState('');
   useEffect(() => {
@@ -125,21 +189,30 @@ export default function AdminDashboardPage() {
 
   const [salesTrend, setSalesTrend] = useState<SalesTrend | null>(null);
   const [salesCats, setSalesCats] = useState<SalesByCategory | null>(null);
-  const [bizPeriod, setBizPeriod] = useState<ReportPeriod>('this_week');
+  const [bizPeriod, setBizPeriod] = useState<RangeSel>('this_week');
+  const [bizMetric, setBizMetric] = useState<BizMetric>('sales');
+  const [bizCustom, setBizCustom] = useState<{ from: string; to: string }>({ from: '', to: '' });
   const [collTrend, setCollTrend] = useState<PaymentSummary | null>(null);
-  const [schemePeriod, setSchemePeriod] = useState<ReportPeriod>('this_week');
+  const [schemeEnroll, setSchemeEnroll] = useState<EnrollmentSummary | null>(null);
+  const [schemePeriod, setSchemePeriod] = useState<RangeSel>('this_week');
+  const [schemeMetric, setSchemeMetric] = useState<SchemeMetric>('collections');
+  const [schemeCustom, setSchemeCustom] = useState<{ from: string; to: string }>({ from: '', to: '' });
 
-  // Per-period caches — switching back to an already-fetched period is instant
-  // and issues no duplicate request. Fetching flags drive a small chart-only
-  // skeleton (never a full-page loader). Stale responses are dropped by
-  // comparing the resolved period against the latest requested one.
-  const salesTrendCache = useRef<Partial<Record<ReportPeriod, SalesTrend>>>({});
-  const salesCatsCache = useRef<Partial<Record<ReportPeriod, SalesByCategory>>>({});
-  const collTrendCache = useRef<Partial<Record<ReportPeriod, PaymentSummary>>>({});
-  const bizReqRef = useRef<ReportPeriod>('this_week');
-  const schemeReqRef = useRef<ReportPeriod>('this_week');
+  // Per-range caches keyed by a range string — switching back to an already
+  // fetched range is instant and issues no duplicate request. Fetching flags
+  // drive a chart-only skeleton (never a full-page loader). Stale responses are
+  // dropped by comparing the resolved key against the latest requested one.
+  const salesTrendCache = useRef<Record<string, SalesTrend>>({});
+  const salesCatsCache = useRef<Record<string, SalesByCategory>>({});
+  const collTrendCache = useRef<Record<string, PaymentSummary>>({});
+  const schemeEnrollCache = useRef<Record<string, EnrollmentSummary>>({});
+  const bizReqRef = useRef<string>('this_week');
+  const schemeReqRef = useRef<string>('this_week');
   const [bizFetching, setBizFetching] = useState(false);
   const [schemeFetching, setSchemeFetching] = useState(false);
+
+  const [todayGoldGrams, setTodayGoldGrams] = useState<number | null>(null);
+  const [bizOutstanding, setBizOutstanding] = useState<number | null>(null);
 
   const load = async () => {
     setLoading(true); setError('');
@@ -176,39 +249,58 @@ export default function AdminDashboardPage() {
   useEffect(() => { load(); }, []);
 
   // Billing summary + recent invoices — separate: Staff without billing module 403s here.
+  // The unfiltered sales list also yields all-time business outstanding (aggregate);
+  // a today-scoped list yields today's gold sold (grams). Real backend aggregates.
   useEffect(() => {
+    const todayStr = isoDate(new Date());
     billingService.getDashboardSummary('today').then(setBilling).catch(() => setBilling(null));
-    billingService.listSales({ limit: 5 }).then((r) => setInvoices(r.sales)).catch(() => setInvoices([]));
+    billingService.listSales({ limit: 5 }).then((r) => { setInvoices(r.sales); setBizOutstanding(r.totalOutstanding); }).catch(() => { setInvoices([]); setBizOutstanding(null); });
+    billingService.listSales({ dateFrom: todayStr, dateTo: todayStr, limit: 1 }).then((r) => setTodayGoldGrams(r.totalGoldWeightGrams)).catch(() => setTodayGoldGrams(null));
   }, []);
 
+  // Business chart: one fetch per range yields all three metrics (sales/profit/
+  // gold), so switching metric never refetches. Category donut fetched alongside.
   useEffect(() => {
-    bizReqRef.current = bizPeriod;
-    const cachedT = salesTrendCache.current[bizPeriod];
-    const cachedC = salesCatsCache.current[bizPeriod];
+    const key = rangeKey(bizPeriod, bizCustom);
+    const params = rangeParams(bizPeriod, bizCustom);
+    bizReqRef.current = key;
+    if (!params) { setBizFetching(false); return; } // custom awaiting Apply
+    const cachedT = salesTrendCache.current[key];
+    const cachedC = salesCatsCache.current[key];
     if (cachedT && cachedC) { setSalesTrend(cachedT); setSalesCats(cachedC); setBizFetching(false); return; }
     setBizFetching(true);
     Promise.all([
-      reportService.getSalesTrend({ period: bizPeriod }).catch(() => null),
-      reportService.getSalesByCategory({ period: bizPeriod }).catch(() => null),
+      reportService.getSalesTrend(params).catch(() => null),
+      reportService.getSalesByCategory(params).catch(() => null),
     ]).then(([t, c]) => {
-      if (bizReqRef.current !== bizPeriod) return; // stale — a newer period won
-      if (t) { salesTrendCache.current[bizPeriod] = t; setSalesTrend(t); } else setSalesTrend(null);
-      if (c) { salesCatsCache.current[bizPeriod] = c; setSalesCats(c); } else setSalesCats(null);
+      if (bizReqRef.current !== key) return; // stale — a newer range won
+      if (t) { salesTrendCache.current[key] = t; setSalesTrend(t); } else setSalesTrend(null);
+      if (c) { salesCatsCache.current[key] = c; setSalesCats(c); } else setSalesCats(null);
       setBizFetching(false);
     });
-  }, [bizPeriod]);
+  }, [bizPeriod, bizCustom]);
 
+  // Scheme chart: fetch payment-summary (collections ₹) + enrollment-summary
+  // (maturity ₹ + enrollments count) per range; metric switch just remaps.
   useEffect(() => {
-    schemeReqRef.current = schemePeriod;
-    const cached = collTrendCache.current[schemePeriod];
-    if (cached) { setCollTrend(cached); setSchemeFetching(false); return; }
+    const key = rangeKey(schemePeriod, schemeCustom);
+    const params = rangeParams(schemePeriod, schemeCustom);
+    schemeReqRef.current = key;
+    if (!params) { setSchemeFetching(false); return; }
+    const cachedP = collTrendCache.current[key];
+    const cachedE = schemeEnrollCache.current[key];
+    if (cachedP && cachedE) { setCollTrend(cachedP); setSchemeEnroll(cachedE); setSchemeFetching(false); return; }
     setSchemeFetching(true);
-    reportService.getPaymentSummary({ period: schemePeriod }).catch(() => null).then((r) => {
-      if (schemeReqRef.current !== schemePeriod) return; // stale
-      if (r) { collTrendCache.current[schemePeriod] = r; setCollTrend(r); } else setCollTrend(null);
+    Promise.all([
+      reportService.getPaymentSummary(params).catch(() => null),
+      reportService.getEnrollmentSummary(params).catch(() => null),
+    ]).then(([p, e]) => {
+      if (schemeReqRef.current !== key) return; // stale
+      if (p) { collTrendCache.current[key] = p; setCollTrend(p); } else setCollTrend(null);
+      if (e) { schemeEnrollCache.current[key] = e; setSchemeEnroll(e); } else setSchemeEnroll(null);
       setSchemeFetching(false);
     });
-  }, [schemePeriod]);
+  }, [schemePeriod, schemeCustom]);
 
   const latestGold = goldTrend?.trend.length ? goldTrend.trend[goldTrend.trend.length - 1].rate24k : null;
   const goldChange = goldTrend?.latestChangePercent ?? null;
@@ -216,32 +308,56 @@ export default function AdminDashboardPage() {
   const activeEnrollments = enrollments.filter((e) => e.status === 'ACTIVE');
   const totalMaturity = activeEnrollments.reduce((s, e) => s + (e.maturityAmount || 0), 0);
 
+  const todayProfit = billing?.today.totalProfit != null
+    ? formatCurrency(billing.today.totalProfit)
+    : (billing?.today.totalLoss ? '-' + formatCurrency(billing.today.totalLoss) : '—');
+
   // Business KPIs — billing is source of truth (real, no growth series for sales).
   const bizKpis: KpiSpec[] = [
     { title: "Today's Sales", value: billing ? formatCurrency(billing.today.totalSales) : '—', growth: null, sub: 'Finalized sales today', icon: Receipt, href: '/admin/billing/history' },
-    { title: 'This Month Sales', value: billing ? formatCurrency(billing.thisMonth.totalSales) : '—', growth: null, sub: 'Month to date', icon: TrendingUp, href: '/admin/billing/history' },
-    { title: 'Total Profit (MTD)', value: billing?.thisMonth.totalProfit != null ? formatCurrency(billing.thisMonth.totalProfit) : (billing?.thisMonth.totalLoss ? '-' + formatCurrency(billing.thisMonth.totalLoss) : '—'), growth: null, sub: 'Historical-cost basis', icon: Landmark, href: '/admin/reports' },
-    { title: 'Items In Stock', value: cards?.items_in_stock != null ? String(cards.items_in_stock) : '—', growth: null, sub: 'Sellable inventory', icon: Package, href: '/admin/billing/inventory' },
+    { title: "Today's Gold Sold", value: todayGoldGrams != null ? fmtGrams(todayGoldGrams) : '—', growth: null, sub: 'Net weight sold today', icon: Coins, href: '/admin/billing/history' },
+    { title: "Today's Profit", value: billing ? todayProfit : '—', growth: null, sub: 'Historical-cost basis', icon: Landmark, href: '/admin/reports' },
+    { title: 'Outstanding Amount', value: bizOutstanding != null ? formatCurrency(bizOutstanding) : '—', growth: null, sub: 'Unpaid product dues', icon: AlertTriangle, href: '/admin/billing/history', danger: true },
   ];
 
   const schemeKpis: KpiSpec[] = [
     { title: "Today's Collections", value: payToday ? formatCurrency(payToday.totalRevenue) : '—', growth: payToday?.totalRevenueGrowthPercent ?? null, sub: 'Successful payments today', icon: Wallet, href: '/admin/collections' },
-    { title: 'Active Enrollments', value: dash ? dash.activeEnrollments.toLocaleString('en-IN') : '—', growth: null, sub: 'Currently active', icon: Users, href: '/admin/enrollments' },
+    { title: 'Total Enrollments', value: dash ? dash.activeEnrollments.toLocaleString('en-IN') : '—', growth: null, sub: 'Currently active', icon: Users, href: '/admin/enrollments' },
     { title: 'Total Maturity (Est.)', value: formatCurrency(totalMaturity), growth: null, sub: 'Active enrollments maturity', icon: Coins, href: '/admin/reports' },
-    { title: 'Outstanding Dues', value: payAllTime ? formatCurrency(payAllTime.outstandingDues) : '—', growth: null, sub: 'Pending installments', icon: AlertTriangle, href: '/admin/collections', danger: true },
+    { title: 'Overdue Amount', value: payAllTime ? formatCurrency(payAllTime.outstandingDues) : '—', growth: null, sub: 'Pending installments', icon: AlertTriangle, href: '/admin/collections', danger: true },
   ];
 
   const quickActions = [
-    { title: 'Add Customer', icon: UserPlus, href: '/admin/customers', color: '#2563EB', tint: '#EFF6FF' },
-    { title: 'New Sale (Billing)', icon: ShoppingBag, href: '/admin/billing/sell', color: '#16A34A', tint: '#ECFDF5' },
+    { title: 'New Sale', icon: ShoppingBag, href: '/admin/billing/sell', color: '#2563EB', tint: '#EFF6FF' },
+    { title: 'Add Customer', icon: UserPlus, href: '/admin/customers', color: '#16A34A', tint: '#ECFDF5' },
+    { title: 'Record Payment', icon: CreditCard, href: '/admin/payments', color: '#7C3AED', tint: '#F5F3FF' },
     { title: 'New Enrollment', icon: FilePlus2, href: '/admin/enrollments', color: '#EA580C', tint: '#FFF7ED' },
-    { title: 'Record Collection', icon: Wallet, href: '/admin/collections', color: '#7C3AED', tint: '#F5F3FF' },
-    { title: 'Send Reminder', icon: Bell, href: '/admin/notifications', color: '#DC2626', tint: '#FEF2F2' },
+    { title: 'Add Scheme', icon: Coins, href: '/admin/schemes', color: '#D97706', tint: '#FFFBEB' },
+    { title: 'Add Catalogue', icon: LayoutGrid, href: '/admin/catalogue', color: '#0EA5E9', tint: '#F0F9FF' },
+    { title: 'Generate Report', icon: FileText, href: '/admin/reports', color: '#DC2626', tint: '#FEF2F2' },
   ];
 
-  const salesChart = (salesTrend?.trend ?? []).map((p) => ({ x: p.label, y: p.totalAmount }));
-  const invoiceChart = (salesTrend?.trend ?? []).map((p) => ({ x: p.label, y: p.saleCount }));
-  const collChart = (collTrend?.monthlyTrend ?? []).map((p) => ({ x: p.label, y: p.totalAmount }));
+  // Business chart series/unit by metric (all three come from the one salesTrend fetch).
+  const bizSeries = (salesTrend?.trend ?? []).map((p) => ({
+    x: p.label,
+    y: bizMetric === 'sales' ? p.totalAmount : bizMetric === 'profit' ? p.profit : p.goldWeightGrams,
+  }));
+  const bizUnit = bizMetric === 'gold' ? 'grams' : 'inr';
+  const bizMetricLabel = BIZ_METRICS.find((m) => m.value === bizMetric)!.label;
+  const salesChart = bizSeries; // top-KPI sparkline reuse (sales metric by default)
+
+  // Scheme chart series/unit by metric.
+  const schemeSource =
+    schemeMetric === 'today_collection'
+      ? (payToday?.monthlyTrend ?? []).map((p) => ({ x: p.label, y: p.totalAmount }))
+      : schemeMetric === 'collections'
+      ? (collTrend?.monthlyTrend ?? []).map((p) => ({ x: p.label, y: p.totalAmount }))
+      : schemeMetric === 'maturity'
+      ? (schemeEnroll?.dailyTrend ?? []).map((p) => ({ x: p.label, y: p.maturityAmount }))
+      : (schemeEnroll?.dailyTrend ?? []).map((p) => ({ x: p.label, y: p.newEnrollments }));
+  const schemeUnit = schemeMetric === 'enrollments' ? 'count' : 'inr';
+  const schemeMetricLabel = SCHEME_METRICS.find((m) => m.value === schemeMetric)!.label;
+  const collChart = schemeSource;
   const catDonut = (salesCats?.categories ?? []).map((c, i) => ({ name: c.category, value: c.totalSales, pct: c.percentage, color: DONUT_BUSINESS[i % DONUT_BUSINESS.length] }));
   const schemeDonut = (schemeSummary?.schemes ?? []).filter((s) => s.activeEnrollments > 0)
     .map((s, i) => ({ name: s.schemeName, value: s.activeEnrollments, color: DONUT_SCHEME[i % DONUT_SCHEME.length] }));
@@ -284,14 +400,14 @@ export default function AdminDashboardPage() {
             <span className="whitespace-nowrap hidden sm:inline">Today, {todayLabel}</span>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
           </div>
-          <button onClick={() => router.push('/admin/settings')} aria-label="Settings"
-            className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-[#0B0E23] hover:border-gold/50 transition-colors shrink-0 hidden sm:flex items-center gap-1.5 text-xs font-bold">
-            <Settings className="w-4 h-4" /><span className="hidden lg:inline">Settings</span>
-          </button>
-          <button onClick={handleLogout} aria-label="Logout"
-            className="h-10 px-3 rounded-xl border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors shrink-0 flex items-center gap-1.5 text-xs font-bold">
-            <LogOut className="w-4 h-4" /><span className="hidden lg:inline">Logout</span>
-          </button>
+          <Button onClick={() => router.push('/admin/settings')} variant="outline" size="sm"
+            className="h-8 px-2.5 border-slate-200 text-slate-600 hover:text-[#0B0E23] hidden lg:flex gap-1.5 text-xs font-bold">
+            <Settings className="w-3.5 h-3.5" /><span>Settings</span>
+          </Button>
+          <Button onClick={handleLogout} variant="outline" size="sm"
+            className="h-8 px-2 sm:px-2.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 flex gap-1.5 text-xs font-bold">
+            <LogOut className="w-3.5 h-3.5" /><span className="hidden sm:inline">Logout</span>
+          </Button>
         </div>
       </div>
 
@@ -313,16 +429,8 @@ export default function AdminDashboardPage() {
         <span className="flex items-center gap-1.5"><span className="text-slate-500 font-bold">Silver 999:</span><span className="font-bold text-slate-400">Not tracked</span></span>
       </div>
 
-      {/* TOP KPI ROW — business + scheme highlights with sparklines */}
-      {!error && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <TopKpi title="Today's Sales (Business)" value={billing ? formatCurrency(billing.today.totalSales) : '—'} growth={null} icon={ShoppingBag} accent="#2563EB" tint="#EFF6FF" spark={salesChart} sparkId="spkSales" onClick={() => router.push('/admin/billing/history')} />
-          <TopKpi title="Today's Collections (Scheme)" value={payToday ? formatCurrency(payToday.totalRevenue) : '—'} growth={payToday?.totalRevenueGrowthPercent ?? null} icon={Wallet} accent="#16A34A" tint="#ECFDF5" spark={collChart} sparkId="spkColl" onClick={() => router.push('/admin/collections')} />
-          <TopKpi title="Total Customers" value={dash ? dash.totalCustomers.toLocaleString('en-IN') : '—'} growth={dash?.totalCustomersGrowthPercent ?? null} icon={Users} accent="#EA580C" tint="#FFF7ED" onClick={() => router.push('/admin/customers')} />
-          <TopKpi title="Today's Invoices" value={billing ? String(billing.today.billCount) : '—'} growth={null} icon={FileText} accent="#7C3AED" tint="#F5F3FF" spark={invoiceChart} sparkId="spkInv" onClick={() => router.push('/admin/billing/history')} />
-          <TopKpi title="Overdue Customers" value={String(collections.length)} growth={null} icon={Bell} accent="#DC2626" tint="#FEF2F2" onClick={() => router.push('/admin/collections')} />
-        </div>
-      )}
+      {/* QUICK ACTIONS — top of dashboard */}
+      {!error && <QuickActionsBar actions={quickActions} />}
 
       {error && (
         <Card className="p-4 border-red-200 bg-red-50/60">
@@ -359,24 +467,30 @@ export default function AdminDashboardPage() {
 
             {/* Sales Trend */}
             <Card className="p-3 bg-white border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <CardTitle className="text-xs font-bold text-[#0B0E23]">Sales Trend</CardTitle>
-                <PeriodTabs value={bizPeriod} onChange={setBizPeriod} accent={BUSINESS_BLUE} />
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <MetricSelect value={bizMetric} onChange={setBizMetric} options={BIZ_METRICS} accent={BUSINESS_BLUE} />
+                  <PeriodTabs value={bizPeriod} onChange={setBizPeriod} accent={BUSINESS_BLUE} />
+                </div>
               </div>
-              {bizFetching && salesChart.length === 0 ? (
+              {bizPeriod === 'custom' && <CustomRange value={bizCustom} onApply={setBizCustom} accent={BUSINESS_BLUE} />}
+              {bizPeriod === 'custom' && (!bizCustom.from || !bizCustom.to) ? (
+                <EmptyChart text="Pick a date range and Apply" />
+              ) : bizFetching && bizSeries.length === 0 ? (
                 <ChartSkeleton />
-              ) : salesChart.length === 0 ? (
-                <EmptyChart text="No sales in this period" />
+              ) : bizSeries.length === 0 ? (
+                <EmptyChart text="No data in this period" />
               ) : (
                 <div className="h-40 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={salesChart} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
+                    <AreaChart data={bizSeries} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                       <defs><linearGradient id="areaSales" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={BUSINESS_BLUE} stopOpacity={0.3} /><stop offset="95%" stopColor={BUSINESS_BLUE} stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                       <XAxis dataKey="x" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={(v) => `₹${Math.round(v / 1000)}k`} />
-                      <Tooltip formatter={(v: number) => [formatCurrency(v), 'Sales']} contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #E2E8F0' }} />
-                      <Area type="monotone" dataKey="y" stroke={BUSINESS_BLUE} strokeWidth={2.5} fill="url(#areaSales)" dot={{ r: 2.5, fill: BUSINESS_BLUE }} activeDot={{ r: 4 }} name="Sales" />
+                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={(v) => bizUnit === 'grams' ? `${Math.round(v)}g` : `₹${Math.round(v / 1000)}k`} />
+                      <Tooltip formatter={(v: number) => [bizUnit === 'grams' ? fmtGrams(v) : formatCurrency(v), bizMetricLabel]} contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #E2E8F0' }} />
+                      <Area type="monotone" dataKey="y" stroke={BUSINESS_BLUE} strokeWidth={2.5} fill="url(#areaSales)" dot={{ r: 2.5, fill: BUSINESS_BLUE }} activeDot={{ r: 4 }} name={bizMetricLabel} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -464,14 +578,20 @@ export default function AdminDashboardPage() {
 
             {/* Collections Trend */}
             <Card className="p-3 bg-white border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <CardTitle className="text-xs font-bold text-[#0B0E23]">Collections Trend</CardTitle>
-                <PeriodTabs value={schemePeriod} onChange={setSchemePeriod} accent={SCHEME_GOLD} />
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <MetricSelect value={schemeMetric} onChange={setSchemeMetric} options={SCHEME_METRICS} accent={SCHEME_GOLD} />
+                  <PeriodTabs value={schemePeriod} onChange={setSchemePeriod} accent={SCHEME_GOLD} />
+                </div>
               </div>
-              {schemeFetching && collChart.length === 0 ? (
+              {schemePeriod === 'custom' && <CustomRange value={schemeCustom} onApply={setSchemeCustom} accent={SCHEME_GOLD} />}
+              {schemePeriod === 'custom' && (!schemeCustom.from || !schemeCustom.to) ? (
+                <EmptyChart text="Pick a date range and Apply" />
+              ) : schemeFetching && collChart.length === 0 ? (
                 <ChartSkeleton />
               ) : collChart.length === 0 || collChart.every((d) => !d.y) ? (
-                <EmptyChart text="No collections in this period" />
+                <EmptyChart text="No data in this period" />
               ) : (
                 <div className="h-40 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -479,9 +599,9 @@ export default function AdminDashboardPage() {
                       <defs><linearGradient id="areaColl" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={SCHEME_GOLD} stopOpacity={0.3} /><stop offset="95%" stopColor={SCHEME_GOLD} stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                       <XAxis dataKey="x" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={(v) => `₹${Math.round(v / 1000)}k`} />
-                      <Tooltip formatter={(v: number) => [formatCurrency(v), 'Collections']} contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #E2E8F0' }} />
-                      <Area type="monotone" dataKey="y" stroke={SCHEME_GOLD} strokeWidth={2.5} fill="url(#areaColl)" dot={{ r: 2.5, fill: SCHEME_GOLD }} activeDot={{ r: 4 }} name="Collections" />
+                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={(v) => schemeUnit === 'count' ? String(Math.round(v)) : `₹${Math.round(v / 1000)}k`} />
+                      <Tooltip formatter={(v: number) => [schemeUnit === 'count' ? String(v) : formatCurrency(v), schemeMetricLabel]} contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #E2E8F0' }} />
+                      <Area type="monotone" dataKey="y" stroke={SCHEME_GOLD} strokeWidth={2.5} fill="url(#areaColl)" dot={{ r: 2.5, fill: SCHEME_GOLD }} activeDot={{ r: 4 }} name={schemeMetricLabel} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -529,7 +649,7 @@ export default function AdminDashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-[11px]">
                     <thead><tr className="text-slate-500 font-bold uppercase text-[9px] border-b border-slate-200">
-                      <th className="py-1.5 pr-2">Customer</th><th className="py-1.5 pr-2">Scheme</th><th className="py-1.5 pr-2 text-right">Amt/Mo</th><th className="py-1.5 pr-2">Start</th><th className="py-1.5 text-center">Status</th>
+                      <th className="py-1.5 pr-2">Customer</th><th className="py-1.5 pr-2">Scheme</th><th className="py-1.5 pr-2 text-right">Amt/Mo</th><th className="py-1.5 pr-2 text-center">Duration</th><th className="py-1.5 pr-2">Start</th><th className="py-1.5 text-center">Status</th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {enrollments.slice(0, 5).map((e) => (
@@ -537,6 +657,7 @@ export default function AdminDashboardPage() {
                           <td className="py-1.5 pr-2 text-slate-700 truncate max-w-[70px]">{e.customerName}</td>
                           <td className="py-1.5 pr-2 text-slate-700 truncate max-w-[80px]">{e.schemeName}</td>
                           <td className="py-1.5 pr-2 text-right font-mono font-bold text-[#0B0E23]">{e.monthlyAmount ? formatCurrency(e.monthlyAmount) : '—'}</td>
+                          <td className="py-1.5 pr-2 text-center text-slate-600">{e.durationMonths ? `${e.durationMonths} mo` : '—'}</td>
                           <td className="py-1.5 pr-2 text-slate-500">{new Date(e.joinedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
                           <td className="py-1.5 text-center"><Badge variant={ENROLL_STATUS_BADGE[e.status] ?? 'neutral'} className="text-[9px]">{e.status}</Badge></td>
                         </tr>
@@ -555,9 +676,8 @@ export default function AdminDashboardPage() {
 
       {/* REMINDERS + ALERTS */}
       {!loading && !error && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <PanelList title="Today's Reminders" items={reminders} emptyText="No reminders today" viewAllHref="/admin/notifications" />
-          <QuickActionsPanel actions={quickActions} />
           <PanelList title="Alerts & Notifications" items={alerts} emptyText="No active alerts" viewAllHref="/admin/notifications" />
         </div>
       )}
@@ -621,21 +741,21 @@ function TopKpi({ title, tag, value, growth, icon, accent, tint, spark, sparkId,
   );
 }
 
-function QuickActionsPanel({ actions }: { actions: { title: string; icon: React.ElementType; href: string; color: string; tint: string }[] }) {
+function QuickActionsBar({ actions }: { actions: { title: string; icon: React.ElementType; href: string; color: string; tint: string }[] }) {
   const router = useRouter();
   return (
     <Card className="p-3 bg-white border-slate-200 shadow-xs">
       <CardTitle className="text-xs font-bold text-[#0B0E23] mb-2">Quick Actions</CardTitle>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
         {actions.map((qa) => {
           const Icon = qa.icon;
           return (
             <button key={qa.title} onClick={() => router.push(qa.href)}
-              className="border border-slate-200 hover:shadow-xs p-2 rounded-xl flex flex-col items-center gap-1.5 transition-all hover:-translate-y-0.5">
+              className="border border-slate-200 hover:shadow-xs p-2.5 rounded-xl flex flex-col items-center gap-1.5 transition-all hover:-translate-y-0.5">
               <span className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: qa.tint, color: qa.color }}>
                 <Icon className="w-4 h-4" />
               </span>
-              <span className="text-[9px] font-bold text-slate-600 text-center leading-tight">{qa.title}</span>
+              <span className="text-[10px] font-bold text-slate-600 text-center leading-tight">{qa.title}</span>
             </button>
           );
         })}

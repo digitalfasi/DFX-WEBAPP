@@ -1653,7 +1653,7 @@ export const billingService = {
     dateTo?: string;
     paymentStatus?: SalePaymentStatus;
     saleStatus?: SaleStatus;
-  } = {}): Promise<{ sales: Sale[]; total: number; totalGoldWeightGrams: number }> {
+  } = {}): Promise<{ sales: Sale[]; total: number; totalGoldWeightGrams: number; totalOutstanding: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
     query.set('limit', String(params.limit ?? 50));
@@ -1663,7 +1663,7 @@ export const billingService = {
     if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
     if (params.saleStatus) query.set('sale_status', params.saleStatus);
 
-    const res = await apiClient.get<{ sales: BackendSale[]; total: number; total_gold_weight_grams: number }>(
+    const res = await apiClient.get<{ sales: BackendSale[]; total: number; total_gold_weight_grams: number; total_outstanding: number }>(
       `/billing/sales?${query.toString()}`,
       { auth: true }
     );
@@ -1671,6 +1671,7 @@ export const billingService = {
       sales: res.data.sales.map(mapSale),
       total: res.data.total,
       totalGoldWeightGrams: res.data.total_gold_weight_grams ?? 0,
+      totalOutstanding: res.data.total_outstanding ?? 0,
     };
   },
 

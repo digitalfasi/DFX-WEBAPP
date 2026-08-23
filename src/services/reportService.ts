@@ -153,6 +153,7 @@ function mapTopCustomers(raw: BackendTopCustomersResponse): TopCustomersReport {
 interface BackendEnrollmentTrendPoint {
   period_label: string;
   new_enrollments: number;
+  maturity_amount?: number;
 }
 
 interface BackendEnrollmentSummary {
@@ -170,6 +171,7 @@ interface BackendEnrollmentSummary {
 export interface EnrollmentTrendPoint {
   label: string;
   newEnrollments: number;
+  maturityAmount: number;
 }
 
 export interface EnrollmentSummary {
@@ -196,7 +198,7 @@ function mapEnrollmentSummary(raw: BackendEnrollmentSummary): EnrollmentSummary 
     retentionRatePercent: raw.retention_rate_percent,
     conversionFunnelPercent: raw.conversion_funnel_percent,
     redemptionVelocityDays: raw.redemption_velocity_days,
-    dailyTrend: raw.daily_trend.map((t) => ({ label: t.period_label, newEnrollments: t.new_enrollments })),
+    dailyTrend: raw.daily_trend.map((t) => ({ label: t.period_label, newEnrollments: t.new_enrollments, maturityAmount: t.maturity_amount ?? 0 })),
   };
 }
 
@@ -319,6 +321,8 @@ interface BackendSalesTrendPoint {
   period_label: string;
   total_amount: number;
   sale_count: number;
+  profit?: number;
+  gold_weight_grams?: number;
 }
 interface BackendSalesTrendResponse {
   range: BackendDateRange;
@@ -328,6 +332,8 @@ export interface SalesTrendPoint {
   label: string;
   totalAmount: number;
   saleCount: number;
+  profit: number;
+  goldWeightGrams: number;
 }
 export interface SalesTrend {
   range: DateRange;
@@ -403,7 +409,13 @@ export const reportService = {
     const r = res.data.report;
     return {
       range: mapRange(r.range),
-      trend: r.trend.map((t) => ({ label: t.period_label, totalAmount: t.total_amount, saleCount: t.sale_count })),
+      trend: r.trend.map((t) => ({
+        label: t.period_label,
+        totalAmount: t.total_amount,
+        saleCount: t.sale_count,
+        profit: t.profit ?? 0,
+        goldWeightGrams: t.gold_weight_grams ?? 0,
+      })),
     };
   },
 
