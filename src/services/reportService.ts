@@ -146,6 +146,34 @@ function mapTopCustomers(raw: BackendTopCustomersResponse): TopCustomersReport {
 }
 
 /* ------------------------------------------------------------------ */
+/* Top Customers by Sales Spend — Business Analytics ranking            */
+/* ------------------------------------------------------------------ */
+
+interface BackendTopCustomerBySales {
+  customer_id: string;
+  customer_name: string | null;
+  total_spent: number;
+  bill_count: number;
+}
+
+interface BackendTopCustomersBySalesResponse {
+  range: BackendDateRange;
+  customers: BackendTopCustomerBySales[];
+}
+
+export interface TopCustomerBySales {
+  customerId: string;
+  customerName: string | null;
+  totalSpent: number;
+  billCount: number;
+}
+
+export interface TopCustomersBySalesReport {
+  range: DateRange;
+  customers: TopCustomerBySales[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Enrollment Summary — Reports Active Passbooks KPI, Analytics retention */
 /* KPI + weekly trend chart                                            */
 /* ------------------------------------------------------------------ */
@@ -399,6 +427,47 @@ function mapInsights(raw: BackendInsightsResponse): InsightsResult {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* AI Analyst (Phase 2A)                                               */
+/* ------------------------------------------------------------------ */
+
+export type AiPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface AiRecommendedAction {
+  priority: AiPriority;
+  title: string;
+  explanation: string;
+  metric?: string | null;
+}
+
+interface BackendAiAnalysis {
+  domain: 'BUSINESS' | 'SCHEME';
+  range: BackendDateRange;
+  available: boolean;
+  executive_summary: string;
+  key_findings: string[];
+  opportunities: string[];
+  risks: string[];
+  recommended_actions: AiRecommendedAction[];
+  generated_at: string | null;
+  model: string | null;
+  note: string | null;
+}
+
+export interface AiAnalysis {
+  domain: 'BUSINESS' | 'SCHEME';
+  range: DateRange;
+  available: boolean;
+  executiveSummary: string;
+  keyFindings: string[];
+  opportunities: string[];
+  risks: string[];
+  recommendedActions: AiRecommendedAction[];
+  generatedAt: string | null;
+  model: string | null;
+  note: string | null;
+}
+
 export const reportService = {
   /** GET /api/v1/reports/sales-trend (Admin) — Business sales time-series. */
   async getSalesTrend(params: ReportRangeParams = {}): Promise<SalesTrend> {
@@ -465,13 +534,33 @@ export const reportService = {
     return mapPaymentSummary(res.data.summary);
   },
 
-  /** GET /api/v1/reports/top-customers (Admin) */
+  /** GET /api/v1/reports/top-customers (Admin) — scheme investment ranking. */
   async getTopCustomers(params: ReportRangeParams & { limit?: number } = {}): Promise<TopCustomersReport> {
     const res = await apiClient.get<{ report: BackendTopCustomersResponse }>(
       `/reports/top-customers${buildQuery(params)}`,
       { auth: true }
     );
     return mapTopCustomers(res.data.report);
+  },
+
+  /** GET /api/v1/reports/top-customers/business (Admin) — ranking by completed-sale spend. */
+  async getTopCustomersBusiness(
+    params: ReportRangeParams & { limit?: number } = {}
+  ): Promise<TopCustomersBySalesReport> {
+    const res = await apiClient.get<{ report: BackendTopCustomersBySalesResponse }>(
+      `/reports/top-customers/business${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      customers: r.customers.map((c) => ({
+        customerId: c.customer_id,
+        customerName: c.customer_name,
+        totalSpent: c.total_spent,
+        billCount: c.bill_count,
+      })),
+    };
   },
 
   /** GET /api/v1/reports/enrollment-summary (Admin) */
@@ -561,6 +650,39 @@ export const reportService = {
       { auth: true }
     );
     return res.data;
+  },
+
+  /** POST /api/v1/reports/ai-analysis (Admin) — one call per explicit action. */
+  async analyzeWithAi(body: {
+    domain: 'BUSINESS' | 'SCHEME';
+    period?: ReportPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<AiAnalysis> {
+    const res = await apiClient.post<{ analysis: BackendAiAnalysis }>(
+      '/reports/ai-analysis',
+      {
+        domain: body.domain,
+        period: body.period,
+        date_from: body.dateFrom,
+        date_to: body.dateTo,
+      },
+      { auth: true }
+    );
+    const a = res.data.analysis;
+    return {
+      domain: a.domain,
+      range: mapRange(a.range),
+      available: a.available,
+      executiveSummary: a.executive_summary,
+      keyFindings: a.key_findings ?? [],
+      opportunities: a.opportunities ?? [],
+      risks: a.risks ?? [],
+      recommendedActions: a.recommended_actions ?? [],
+      generatedAt: a.generated_at,
+      model: a.model,
+      note: a.note,
+    };
   },
 };
 
