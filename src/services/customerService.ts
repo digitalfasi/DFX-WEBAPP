@@ -105,6 +105,7 @@ interface BackendAdminCustomerListItem {
   phone: string | null;
   kyc_status: string;
   member_since: string | null;
+  date_of_birth: string | null;
   is_active: boolean;
   customer_type: string | null;
 }
@@ -119,6 +120,8 @@ export interface AdminCustomerListItem {
   phone: string;
   kycStatus: string;
   memberSince: string;
+  /** YYYY-MM-DD or '' — used to preload the Edit form. */
+  dateOfBirth: string;
   isActive: boolean;
   customerType: string;
 }
@@ -132,8 +135,11 @@ function mapAdminCustomerListItem(raw: BackendAdminCustomerListItem): AdminCusto
     phone: raw.phone ?? '',
     kycStatus: raw.kyc_status,
     memberSince: raw.member_since ?? '',
+    dateOfBirth: raw.date_of_birth ?? '',
     isActive: raw.is_active,
-    customerType: raw.customer_type ?? 'WALK-IN',
+    // NEW (no purchase, no enrollment) is the honest default, not WALK-IN —
+    // matches the backend's derived classification.
+    customerType: raw.customer_type ?? 'NEW',
   };
 }
 
@@ -152,6 +158,7 @@ interface BackendCustomerOverview {
     avatar_url: string | null;
     is_active: boolean;
     member_since: string | null;
+    date_of_birth: string | null;
     created_at: string | null;
     customer_type: string;
   };
@@ -208,6 +215,7 @@ interface BackendCustomerOverview {
 export interface CustomerOverviewProfile {
   id: string; customerCode: string; name: string; email: string; phone: string;
   avatarUrl: string | null; isActive: boolean; memberSince: string;
+  dateOfBirth: string | null;
   createdAt: string | null;
   /** WALK-IN | SCHEME CUSTOMER | HYBRID - derived by the backend from the
    * customer own enrollments and sales, never a stored column. */
@@ -272,6 +280,7 @@ function mapCustomerOverview(raw: BackendCustomerOverview): CustomerOverview {
       avatarUrl: raw.profile.avatar_url,
       isActive: raw.profile.is_active,
       memberSince: raw.profile.member_since ?? '',
+      dateOfBirth: raw.profile.date_of_birth,
       createdAt: raw.profile.created_at,
       customerType: raw.profile.customer_type,
     },
@@ -424,6 +433,8 @@ export interface AdminCustomerCreateData {
   email?: string;
   password: string;
   schemeId?: string;
+  /** YYYY-MM-DD. Required by the backend (AdminCustomerCreateRequest). */
+  dateOfBirth: string;
 }
 
 /** Admin edit of an existing customer — all fields optional (partial update). */
@@ -433,6 +444,8 @@ export interface AdminCustomerUpdateData {
   email?: string;
   password?: string;
   isActive?: boolean;
+  /** YYYY-MM-DD. */
+  dateOfBirth?: string;
 }
 
 export interface AdminCustomerPagination {
@@ -772,10 +785,12 @@ export const customerService = {
   async getAdminCustomers(
     page: number,
     limit: number,
-    search?: string
+    search?: string,
+    customerType?: string
   ): Promise<{ customers: AdminCustomerListItem[]; pagination: AdminCustomerPagination }> {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (search) params.set('search', search);
+    if (customerType) params.set('customer_type', customerType);
     const res = await apiClient.get<{ customers: BackendAdminCustomerListItem[] }>(
       `/admin/customers?${params.toString()}`,
       { auth: true }
@@ -808,6 +823,7 @@ export const customerService = {
       {
         name: data.name,
         password: data.password,
+        date_of_birth: data.dateOfBirth,
         ...(data.phone ? { phone: data.phone } : {}),
         ...(data.email ? { email: data.email } : {}),
         ...(data.schemeId ? { scheme_id: data.schemeId } : {}),
@@ -827,10 +843,22 @@ export const customerService = {
         ...(data.email !== undefined && { email: data.email }),
         ...(data.password !== undefined && { password: data.password }),
         ...(data.isActive !== undefined && { is_active: data.isActive }),
+        ...(data.dateOfBirth !== undefined && { date_of_birth: data.dateOfBirth }),
       },
       { auth: true }
     );
     return mapAdminCustomerDetail(res.data.customer);
+  },
+
+  /** POST /api/v1/admin/customers/{id}/enroll — enrol an EXISTING customer into a
+   * scheme; no new customer is created (WALK-IN becomes HYBRID under one ID). */
+  async enrollExistingCustomer(id: string, schemeId: string): Promise<AdminCustomerCreateResult> {
+    const res = await apiClient.post<{ customer: BackendAdminCustomerCreateResult }>(
+      `/admin/customers/${id}/enroll`,
+      { scheme_id: schemeId },
+      { auth: true }
+    );
+    return mapAdminCustomerCreateResult(res.data.customer);
   },
 
   /** GET /api/v1/admin/branches — includes inactive branches, unlike getBranches(). */

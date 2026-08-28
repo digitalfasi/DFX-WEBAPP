@@ -83,7 +83,7 @@ function Section({
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<AdminCustomerListItem[]>([]);
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'WALK-IN' | 'SCHEME CUSTOMER' | 'HYBRID'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'WALK-IN' | 'SCHEME CUSTOMER' | 'HYBRID' | 'NEW'>('ALL');
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -104,7 +104,7 @@ export default function AdminCustomersPage() {
 
   /* CREATE — reuses the same API/service the backend already supports:
    * walk-in (no phone/email), optional scheme_id enrollment. */
-  const EMPTY_CREATE_FORM: AdminCustomerCreateData = { name: '', phone: '', email: '', password: '', schemeId: '' };
+  const EMPTY_CREATE_FORM: AdminCustomerCreateData = { name: '', phone: '', email: '', password: '', schemeId: '', dateOfBirth: '' };
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<AdminCustomerCreateData>(EMPTY_CREATE_FORM);
   const [createSaving, setCreateSaving] = useState(false);
@@ -116,15 +116,26 @@ export default function AdminCustomersPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
+  /* ENROL EXISTING — join an existing customer to a scheme (WALK-IN becomes
+   * HYBRID) without ever creating a second customer. */
+  const [enrollTarget, setEnrollTarget] = useState<AdminCustomerListItem | null>(null);
+  const [enrollSchemeId, setEnrollSchemeId] = useState('');
+  const [enrollSaving, setEnrollSaving] = useState(false);
+  const [enrollError, setEnrollError] = useState('');
+
   useEffect(() => {
     schemeService.getAdminSchemes().then(setSchemes).catch(() => {});
   }, []);
 
-  const loadCustomers = async (targetPage: number, searchTerm: string) => {
+  const loadCustomers = async (targetPage: number, searchTerm: string, type: typeof typeFilter = typeFilter) => {
     setLoading(true);
     setLoadError('');
     try {
-      const result = await customerService.getAdminCustomers(targetPage, PAGE_SIZE, searchTerm || undefined);
+      // Classification filter is applied server-side so pagination reflects the
+      // FILTERED dataset (e.g. 7 walk-ins = 1 page), never the whole customer base.
+      const result = await customerService.getAdminCustomers(
+        targetPage, PAGE_SIZE, searchTerm || undefined, type === 'ALL' ? undefined : type
+      );
       setCustomers(result.customers);
       setTotalItems(result.pagination.totalItems);
       setTotalPages(result.pagination.totalPages);
@@ -136,11 +147,12 @@ export default function AdminCustomersPage() {
     }
   };
 
+  // Search or classification-tab change reloads from page 1 against the backend.
   useEffect(() => {
-    const timer = setTimeout(() => loadCustomers(1, search), search ? 350 : 0);
+    const timer = setTimeout(() => loadCustomers(1, search, typeFilter), search ? 350 : 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, typeFilter]);
 
   const openDetail = async (id: string) => {
     setDetailId(id);
@@ -172,6 +184,14 @@ export default function AdminCustomersPage() {
       setCreateError('Password must be at least 8 characters.');
       return;
     }
+    if (!createForm.dateOfBirth) {
+      setCreateError('Date of birth is required.');
+      return;
+    }
+    if (createForm.dateOfBirth > new Date().toISOString().slice(0, 10)) {
+      setCreateError('Date of birth cannot be in the future.');
+      return;
+    }
     setCreateSaving(true);
     setCreateError('');
     try {
@@ -193,7 +213,7 @@ export default function AdminCustomersPage() {
 
   const openEdit = (c: AdminCustomerListItem) => {
     setEditTarget(c);
-    setEditForm({ name: c.name, phone: c.phone, email: c.email, isActive: c.isActive });
+    setEditForm({ name: c.name, phone: c.phone, email: c.email, isActive: c.isActive, dateOfBirth: c.dateOfBirth || undefined });
     setEditError('');
   };
 
@@ -207,6 +227,10 @@ export default function AdminCustomersPage() {
       setEditError('Password must be at least 8 characters.');
       return;
     }
+    if (editForm.dateOfBirth && editForm.dateOfBirth > new Date().toISOString().slice(0, 10)) {
+      setEditError('Date of birth cannot be in the future.');
+      return;
+    }
     setEditSaving(true);
     setEditError('');
     try {
@@ -218,6 +242,35 @@ export default function AdminCustomersPage() {
       setEditError(err instanceof ApiError ? err.message : 'Could not update customer.');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const openEnroll = (c: AdminCustomerListItem) => {
+    setEnrollTarget(c);
+    setEnrollSchemeId('');
+    setEnrollError('');
+  };
+
+  const handleEnroll = async () => {
+    if (!enrollTarget) return;
+    if (!enrollSchemeId) {
+      setEnrollError('Select a scheme.');
+      return;
+    }
+    setEnrollSaving(true);
+    setEnrollError('');
+    try {
+      const result = await customerService.enrollExistingCustomer(enrollTarget.id, enrollSchemeId);
+      setEnrollTarget(null);
+      setToast({
+        message: `Enrolled ${result.name}${result.enrollmentNumber ? ` · Enrollment ${result.enrollmentNumber}` : ''}`,
+        type: 'success',
+      });
+      loadCustomers(page, search);
+    } catch (err) {
+      setEnrollError(err instanceof ApiError ? err.message : 'Could not enrol customer.');
+    } finally {
+      setEnrollSaving(false);
     }
   };
 
@@ -250,7 +303,7 @@ export default function AdminCustomersPage() {
           />
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
-          {(['ALL', 'WALK-IN', 'SCHEME CUSTOMER', 'HYBRID'] as const).map((t) => (
+          {(['ALL', 'NEW', 'WALK-IN', 'SCHEME CUSTOMER', 'HYBRID'] as const).map((t) => (
             <button key={t} onClick={() => setTypeFilter(t)}
               className={'px-3 py-1 rounded-lg text-[11px] font-bold transition-colors ' +
                 (typeFilter === t ? 'bg-[#0B0E23] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>
@@ -297,7 +350,7 @@ export default function AdminCustomersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {customers.filter((c) => typeFilter === 'ALL' || c.customerType === typeFilter).map((c) => (
+                  {customers.map((c) => (
                     <tr
                       key={c.id}
                       onClick={() => openDetail(c.id)}
@@ -315,8 +368,8 @@ export default function AdminCustomersPage() {
                         </span>
                       </td>
                       <td className="p-4 text-center">
-                        <Badge variant={c.customerType === 'HYBRID' ? 'gold' : c.customerType === 'SCHEME CUSTOMER' ? 'success' : 'neutral'} className="text-[10px] whitespace-nowrap">
-                          {c.customerType === 'SCHEME CUSTOMER' ? 'Scheme' : c.customerType === 'HYBRID' ? 'Hybrid' : 'Walk-in'}
+                        <Badge variant={c.customerType === 'HYBRID' ? 'gold' : c.customerType === 'SCHEME CUSTOMER' ? 'success' : c.customerType === 'WALK-IN' ? 'neutral' : 'warn'} className="text-[10px] whitespace-nowrap">
+                          {c.customerType === 'SCHEME CUSTOMER' ? 'Scheme' : c.customerType === 'HYBRID' ? 'Hybrid' : c.customerType === 'WALK-IN' ? 'Walk-in' : 'New'}
                         </Badge>
                       </td>
                       <td className="p-4 text-[11px] text-slate-500">
@@ -335,16 +388,28 @@ export default function AdminCustomersPage() {
                         </Badge>
                       </td>
                       <td className="p-4 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(c);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-gold-dark hover:bg-gold/10 rounded-lg transition-colors"
-                          title="Edit customer"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEnroll(c);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-gold-dark hover:bg-gold/10 rounded-lg transition-colors"
+                            title="Enrol in scheme"
+                          >
+                            <Coins className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(c);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-gold-dark hover:bg-gold/10 rounded-lg transition-colors"
+                            title="Edit customer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -355,16 +420,19 @@ export default function AdminCustomersPage() {
 
           <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
             <span>
-              Page {page} of {totalPages} ({totalItems.toLocaleString('en-IN')} total customers)
+              Page {page} of {Math.max(totalPages, 1)} ({totalItems.toLocaleString('en-IN')} total customers)
             </span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => loadCustomers(page - 1, search)}>
-                <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Previous
-              </Button>
-              <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => loadCustomers(page + 1, search)}>
-                Next <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </Button>
-            </div>
+            {/* Prev/Next only when the CURRENT filtered dataset spans 2+ pages. */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => loadCustomers(page - 1, search)}>
+                  <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Previous
+                </Button>
+                <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => loadCustomers(page + 1, search)}>
+                  Next <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -401,6 +469,9 @@ export default function AdminCustomersPage() {
                   {detail.profile.phone || '—'}
                   {detail.profile.email ? ` · ${detail.profile.email}` : ''}
                 </div>
+                {detail.profile.dateOfBirth && (
+                  <div className="text-slate-400 text-[11px] mt-0.5">DOB · {formatDate(detail.profile.dateOfBirth)}</div>
+                )}
               </div>
             </div>
 
@@ -612,6 +683,16 @@ export default function AdminCustomersPage() {
           </div>
 
           <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Date of Birth *</label>
+            <Input
+              type="date"
+              value={createForm.dateOfBirth}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setCreateForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Enroll in Scheme (optional)</label>
             <Select value={createForm.schemeId} onChange={(e) => setCreateForm((f) => ({ ...f, schemeId: e.target.value }))}>
               <option value="">No scheme</option>
@@ -664,14 +745,25 @@ export default function AdminCustomersPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-500 uppercase text-[10px]">New Password</label>
-                <Input
-                  type="password"
-                  value={editForm.password ?? ''}
-                  onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value || undefined }))}
-                  placeholder="Leave blank to keep current password"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase text-[10px]">Date of Birth</label>
+                  <Input
+                    type="date"
+                    value={editForm.dateOfBirth ?? ''}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setEditForm((f) => ({ ...f, dateOfBirth: e.target.value || undefined }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase text-[10px]">New Password</label>
+                  <Input
+                    type="password"
+                    value={editForm.password ?? ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value || undefined }))}
+                    placeholder="Leave blank to keep current"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
@@ -693,6 +785,49 @@ export default function AdminCustomersPage() {
               </Button>
               <Button size="sm" isLoading={editSaving} onClick={handleEdit}>
                 Save Changes
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </Dialog>
+
+      {/* ENROL EXISTING CUSTOMER IN A SCHEME */}
+      <Dialog isOpen={!!enrollTarget} onClose={() => !enrollSaving && setEnrollTarget(null)} title="Enrol in Scheme" maxWidth="max-w-md">
+        {enrollTarget && (
+          <>
+            <div className="space-y-3.5 text-xs">
+              {enrollError && (
+                <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {enrollError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Customer</label>
+                <p className="font-bold text-slate-700">
+                  {enrollTarget.name}
+                  <span className="font-mono font-medium text-slate-500"> · {enrollTarget.customerCode || '—'}</span>
+                </p>
+                <p className="text-[11px] text-slate-400">Keeps the same Customer ID — no new customer is created.</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Scheme *</label>
+                <Select value={enrollSchemeId} onChange={(e) => setEnrollSchemeId(e.target.value)}>
+                  <option value="">Select a scheme</option>
+                  {schemes.filter((s) => s.isActive).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setEnrollTarget(null)} disabled={enrollSaving}>
+                Cancel
+              </Button>
+              <Button size="sm" isLoading={enrollSaving} onClick={handleEnroll}>
+                Enrol Customer
               </Button>
             </DialogFooter>
           </>
