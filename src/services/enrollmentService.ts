@@ -15,6 +15,10 @@ interface BackendAdminEnrollment {
   months_paid: number;
   next_due_date: string | null;
   remarks: string | null;
+  // Frozen financial terms (monthly x duration = base maturity, no bonus).
+  monthly_amount: number;
+  duration_months: number;
+  maturity_amount: number;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +59,9 @@ export interface AdminEnrollment {
   monthsPaid: number;
   nextDueDate: string | null;
   remarks: string;
+  monthlyAmount: number;
+  durationMonths: number;
+  maturityAmount: number;
 }
 
 export interface CustomerEnrollment {
@@ -83,6 +90,9 @@ function mapAdminEnrollment(raw: BackendAdminEnrollment): AdminEnrollment {
     monthsPaid: raw.months_paid ?? 0,
     nextDueDate: raw.next_due_date,
     remarks: raw.remarks ?? '',
+    monthlyAmount: raw.monthly_amount ?? 0,
+    durationMonths: raw.duration_months ?? 0,
+    maturityAmount: raw.maturity_amount ?? 0,
   };
 }
 

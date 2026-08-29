@@ -254,9 +254,13 @@ export default function AdminEnrollmentsPage() {
                   <th className="p-4">Enrollment No.</th>
                   <th className="p-4">Customer</th>
                   <th className="p-4">Scheme</th>
-                  <th className="p-4 text-center">Joined</th>
-                  <th className="p-4 text-center">Maturity</th>
+                  <th className="p-4 text-right">Monthly</th>
+                  <th className="p-4 text-center">Duration</th>
+                  <th className="p-4 text-right">Maturity</th>
+                  <th className="p-4 text-center">Start</th>
+                  <th className="p-4 text-center">Maturity Date</th>
                   <th className="p-4 text-center">Status</th>
+                  <th className="p-4">Remarks</th>
                   <th className="p-4 text-center">Actions</th>
                 </tr>
               </thead>
@@ -266,10 +270,18 @@ export default function AdminEnrollmentsPage() {
                     <td className="p-4 font-mono font-bold text-[#0B0E23]">{e.enrollmentNumber}</td>
                     <td className="p-4 font-bold text-[#0B0E23]">{e.customerName}</td>
                     <td className="p-4">{e.schemeName}</td>
-                    <td className="p-4 text-center">{new Date(e.joinedDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</td>
-                    <td className="p-4 text-center">{new Date(e.maturityDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</td>
+                    <td className="p-4 text-right font-mono whitespace-nowrap">{formatCurrency(e.monthlyAmount)}</td>
+                    <td className="p-4 text-center whitespace-nowrap">{e.durationMonths} mo</td>
+                    <td className="p-4 text-right font-mono font-bold text-gold-dark whitespace-nowrap">{formatCurrency(e.maturityAmount)}</td>
+                    <td className="p-4 text-center whitespace-nowrap">{new Date(e.joinedDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</td>
+                    <td className="p-4 text-center whitespace-nowrap">{new Date(e.maturityDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</td>
                     <td className="p-4 text-center">
                       <Badge variant={STATUS_VARIANT[e.status]} dot>{e.status}</Badge>
+                    </td>
+                    <td className="p-4 max-w-[200px]">
+                      {e.remarks
+                        ? <span className="text-slate-600 line-clamp-2" title={e.remarks}>{e.remarks}</span>
+                        : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-1">
@@ -291,7 +303,6 @@ export default function AdminEnrollmentsPage() {
                           <Pencil className="w-4 h-4" />
                         </button>
                       </div>
-                      {e.remarks && <div className="text-[10px] text-slate-400 text-center mt-1 truncate max-w-[160px] mx-auto">{e.remarks}</div>}
                     </td>
                   </tr>
                 ))}
