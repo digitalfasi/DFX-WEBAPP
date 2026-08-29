@@ -19,6 +19,8 @@ interface BackendAdminEnrollment {
   monthly_amount: number;
   duration_months: number;
   maturity_amount: number;
+  // Authoritative SUM of SUCCESSFUL contributions (ledger truth).
+  total_paid: number;
   created_at: string;
   updated_at: string;
 }
@@ -62,6 +64,7 @@ export interface AdminEnrollment {
   monthlyAmount: number;
   durationMonths: number;
   maturityAmount: number;
+  totalPaid: number;
 }
 
 export interface CustomerEnrollment {
@@ -93,6 +96,7 @@ function mapAdminEnrollment(raw: BackendAdminEnrollment): AdminEnrollment {
     monthlyAmount: raw.monthly_amount ?? 0,
     durationMonths: raw.duration_months ?? 0,
     maturityAmount: raw.maturity_amount ?? 0,
+    totalPaid: raw.total_paid ?? 0,
   };
 }
 
