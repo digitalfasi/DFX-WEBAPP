@@ -34,10 +34,9 @@ export function buildQuotationHtml(q: Quotation, extra: QuotationPrintExtras): s
   const when = new Date(q.createdAt).toLocaleString('en-IN');
 
   const rows: [string, number][] = [
-    ['Gold Value', b.goldValueAmount],
-    ...(b.goldProfitPercent > 0
-      ? ([[`Gold Profit (${b.goldProfitPercent}%)`, b.goldProfitAmount]] as [string, number][])
-      : []),
+    // Gold Profit is an INTERNAL margin — never itemised for the customer. It is
+    // folded into Gold Value so the visible rows still reconcile to Subtotal.
+    ['Gold Value', b.goldValueAmount + b.goldProfitAmount],
     [`Making Charge (${b.makingChargeType})`, b.makingChargeAmount],
     [`Wastage (${b.wastageType})`, b.wastageAmount],
     ...(b.stoneChargeAmount > 0 ? ([['Stone Charge', b.stoneChargeAmount]] as [string, number][]) : []),

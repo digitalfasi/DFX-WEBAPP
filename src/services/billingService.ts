@@ -304,10 +304,12 @@ export interface InventoryItemFormData {
   // optional here only so the form can hold an empty value while being typed.
   purchaseCost?: number;
   makingChargeType: ChargeType;
-  makingChargeValue: number;
+  // null = leave blank on create → inherit the resolved Vendor/Category/Store
+  // default server-side. An explicit 0 is kept as a configured 0.
+  makingChargeValue: number | null;
   wastageType: ChargeType;
-  wastageValue: number;
-  goldProfitPercent: number;
+  wastageValue: number | null;
+  goldProfitPercent: number | null;
   stoneChargeAmount?: number;
   otherChargesAmount?: number;
   taxRatePercent: number;
@@ -369,10 +371,10 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     purchase_rate_per_gram: data.purchaseRatePerGram ?? null,
     purchase_cost: data.purchaseCost ?? null,
     making_charge_type: data.makingChargeType,
-    making_charge_value: data.makingChargeValue,
+    making_charge_value: data.makingChargeValue ?? null,
     wastage_type: data.wastageType,
-    wastage_value: data.wastageValue,
-    gold_profit_percent: data.goldProfitPercent,
+    wastage_value: data.wastageValue ?? null,
+    gold_profit_percent: data.goldProfitPercent ?? null,
     stone_charge_amount: data.stoneChargeAmount ?? 0,
     other_charges_amount: data.otherChargesAmount ?? 0,
     tax_rate_percent: data.taxRatePercent,
@@ -1696,7 +1698,7 @@ export const billingService = {
     vendorId?: string;
     subcategory?: string;
     purity?: string;
-  } = {}): Promise<{ items: InventoryItem[]; total: number }> {
+  } = {}): Promise<{ items: InventoryItem[]; total: number; totalGoldWeightGrams: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
     query.set('limit', String(params.limit ?? 50));
@@ -1707,11 +1709,15 @@ export const billingService = {
     if (params.subcategory) query.set('subcategory', params.subcategory);
     if (params.purity) query.set('purity', params.purity);
 
-    const res = await apiClient.get<{ items: BackendInventoryItem[]; total: number }>(
+    const res = await apiClient.get<{ items: BackendInventoryItem[]; total: number; total_gold_weight_grams?: number }>(
       `/billing/inventory?${query.toString()}`,
       { auth: true }
     );
-    return { items: res.data.items.map(mapInventoryItem), total: res.data.total };
+    return {
+      items: res.data.items.map(mapInventoryItem),
+      total: res.data.total,
+      totalGoldWeightGrams: res.data.total_gold_weight_grams ?? 0,
+    };
   },
 
   async getInventoryItem(itemId: string): Promise<InventoryItem> {

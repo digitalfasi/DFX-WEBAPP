@@ -672,7 +672,7 @@ export default function NewSalePage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 font-body max-w-3xl">
+    <div className="space-y-6 animate-in fade-in duration-300 font-body max-w-6xl">
       <div className="flex items-center gap-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
           <Calculator className="h-5 w-5 text-gold" />
@@ -715,7 +715,9 @@ export default function NewSalePage() {
       )}
 
       {stage === 'review' && quote && (
-        <div className="space-y-4">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
+          {/* LEFT — product, pricing inputs, customer, payment, scheme */}
+          <div className="space-y-4 min-w-0">
           <Card className="p-4 flex items-center gap-4">
             <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
               {quote.inventoryItem.imageUrl ? (
@@ -1056,6 +1058,10 @@ export default function NewSalePage() {
             </div>
           )}
 
+          </div>
+
+          {/* RIGHT — sticky Bill Summary: the single anchored total + breakdown + actions */}
+          <div className="space-y-4 lg:sticky lg:top-4">
           <PriceBreakdownCard breakdown={quote.breakdown} />
 
           {safePrice && (
@@ -1068,29 +1074,32 @@ export default function NewSalePage() {
             </p>
           )}
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="h-12"
-              isLoading={quotationBusy}
-              disabled={recalculating}
-              onClick={generateQuotation}
-              title="Generate a printable quotation / sample bill — nothing is sold"
-            >
-              <FileText className="h-4 w-4 mr-1.5" /> Quotation
-            </Button>
-            <Button
-              variant="outline"
-              className="h-12"
-              isLoading={savingDraft}
-              disabled={recalculating}
-              onClick={saveAsServerDraft}
-            >
-              {activeDraftId ? 'Update Draft' : 'Save as Draft'}
-            </Button>
-            <Button className="flex-1 h-12" disabled={!canConfirm || recalculating} onClick={() => setConfirmOpen(true)}>
+          <div className="flex flex-col gap-2">
+            <Button className="h-12" disabled={!canConfirm || recalculating} onClick={() => setConfirmOpen(true)}>
               Save Bill · {formatCurrency(quote.breakdown.finalAmount)}
             </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="h-11 flex-1"
+                isLoading={quotationBusy}
+                disabled={recalculating}
+                onClick={generateQuotation}
+                title="Generate a printable quotation / sample bill — nothing is sold"
+              >
+                <FileText className="h-4 w-4 mr-1.5" /> Quotation
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 flex-1"
+                isLoading={savingDraft}
+                disabled={recalculating}
+                onClick={saveAsServerDraft}
+              >
+                {activeDraftId ? 'Update Draft' : 'Save as Draft'}
+              </Button>
+            </div>
+          </div>
           </div>
         </div>
       )}
@@ -1298,8 +1307,14 @@ function ProfitView({
 
 /** Backend-authoritative safe-price / discount guidance. Every figure comes
  * from the quote's safe_price payload — nothing is recomputed here. */
+const REDUCTION_LABEL: Record<string, string> = {
+  MAKING: 'Making Charge',
+  WASTAGE: 'Wastage',
+  GOLD_PROFIT: 'Gold Profit',
+};
+
 function SafePricePanel({ guidance, currentPrice }: { guidance: SafePriceGuidance; currentPrice: number }) {
-  const { status, minimumSafePrice, message, isLoss } = guidance;
+  const { status, minimumSafePrice, message, isLoss, requestedPrice, achievablePrice, residualDiscount, reductions } = guidance;
   const roomToDrop =
     minimumSafePrice !== null ? Math.max(0, Number((currentPrice - minimumSafePrice).toFixed(2))) : null;
 
@@ -1322,17 +1337,61 @@ function SafePricePanel({ guidance, currentPrice }: { guidance: SafePriceGuidanc
   const head = blocked ? 'text-red-700' : status === 'ADJUSTABLE' ? 'text-amber-800' : 'text-emerald-700';
   const title = blocked ? 'Below Safe Price' : status === 'ADJUSTABLE' ? 'Discount Within Limit' : 'Safe Price';
 
+  // Requested discount = how far below the computed price the Admin asked. Pure
+  // display of two backend figures — the pricing engine stays authoritative.
+  const requestedDiscount =
+    requestedPrice !== null && requestedPrice < currentPrice
+      ? Number((currentPrice - requestedPrice).toFixed(2))
+      : null;
+  // Total that can be absorbed by trimming charges (sum of backend-supplied
+  // per-charge trims). Never a re-derivation of price — just adds the amounts
+  // the backend already computed for each line.
+  const absorbable = reductions.length
+    ? Number(reductions.reduce((t, r) => t + r.reduceAmount, 0).toFixed(2))
+    : null;
+
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${box}`}>
       <div className="flex items-center justify-between">
         <p className={`text-[11px] font-bold uppercase tracking-wider ${head}`}>{title}</p>
         {isLoss && <span className="text-[10px] font-bold text-red-600 uppercase">Loss</span>}
       </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
         <Stat label="Current Price" value={formatCurrency(currentPrice)} />
+        {requestedPrice !== null && <Stat label="Requested Price" value={formatCurrency(requestedPrice)} />}
+        {requestedDiscount !== null && <Stat label="Requested Discount" value={formatCurrency(requestedDiscount)} />}
         {minimumSafePrice !== null && <Stat label="Minimum Safe Price" value={formatCurrency(minimumSafePrice)} />}
+        {absorbable !== null && <Stat label="Max Absorbable Discount" value={formatCurrency(absorbable)} />}
         {roomToDrop !== null && <Stat label="Max Further Discount" value={formatCurrency(roomToDrop)} />}
+        {achievablePrice !== null && <Stat label="Achievable Price" value={formatCurrency(achievablePrice)} />}
+        {residualDiscount !== null && residualDiscount > 0 && (
+          <Stat label="Unallocated Discount" value={formatCurrency(residualDiscount)} />
+        )}
       </div>
+
+      {/* Where the discount is absorbed — backend-supplied per-charge trims.
+        * GOLD_PROFIT is omitted server-side for Staff (internal margin). */}
+      {reductions.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-black/5 space-y-1">
+          <p className={`text-[10px] font-bold uppercase tracking-wider ${head}`}>Absorb the discount from</p>
+          {reductions.map((r) => (
+            <div key={r.component} className="flex items-center justify-between text-[11px] font-medium">
+              <span className="text-slate-600">
+                {REDUCTION_LABEL[r.component] ?? r.component}
+                {r.fromValue !== null && r.toValue !== null && (
+                  <span className="text-slate-400"> ({r.fromValue} → {r.toValue}{r.chargeType === 'PERCENTAGE' ? '%' : ''})</span>
+                )}
+              </span>
+              <span className="font-mono font-bold text-[#0B0E23]">− {formatCurrency(r.reduceAmount)}</span>
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-400 font-medium pt-0.5">
+            Charges are pre-tax; GST recalculates on the reduced charges automatically.
+          </p>
+        </div>
+      )}
+
       {message && <p className={`text-[11px] font-medium mt-1.5 ${head}`}>{message}</p>}
     </div>
   );

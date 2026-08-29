@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck, Tags, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck, Tags, CheckCircle2, AlertCircle, Scale } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
@@ -28,7 +28,6 @@ import {
   PRICING_MODE_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
-import { catalogueService, Product } from '@/services/catalogueService';
 import { formatWeight } from '@/lib/formatters';
 import { VendorQuickAddDialog } from '../_components/VendorQuickAddDialog';
 import { BulkPurchaseDialog } from '../_components/BulkPurchaseDialog';
@@ -59,10 +58,12 @@ const emptyForm: InventoryItemFormData = {
   purchaseInvoiceRef: '',
   purchaseCost: undefined,
   makingChargeType: 'PERCENTAGE',
-  makingChargeValue: 0,
+  // null = leave blank to inherit the resolved Vendor/Category/Store default at
+  // create time. Typing an explicit 0 keeps a configured 0.
+  makingChargeValue: null,
   wastageType: 'PERCENTAGE',
-  wastageValue: 0,
-  goldProfitPercent: 0,
+  wastageValue: null,
+  goldProfitPercent: null,
   taxRatePercent: 3,
   pricingMode: 'AUTO',
 };
@@ -73,6 +74,7 @@ export default function InventoryPage() {
   // Unfiltered snapshot backing the filter dropdown option lists.
   const [facetItems, setFacetItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalGoldWeightGrams, setTotalGoldWeightGrams] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -159,10 +161,6 @@ export default function InventoryPage() {
   const [publishGst, setPublishGst] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
-  // Attach to an existing listing vs create a new one (explicit choice).
-  const [publishMode, setPublishMode] = useState<'NEW' | 'EXISTING'>('NEW');
-  const [publishTargetId, setPublishTargetId] = useState('');
-  const [catalogueProducts, setCatalogueProducts] = useState<Product[]>([]);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -183,6 +181,7 @@ export default function InventoryPage() {
       });
       setItems(res.items);
       setTotal(res.total);
+      setTotalGoldWeightGrams(res.totalGoldWeightGrams);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load inventory.');
     } finally {
@@ -259,11 +258,7 @@ export default function InventoryPage() {
     setPublishPrice('');
     setPublishSubCat(item.subcategory || '');
     setPublishGst(true);
-    setPublishMode('NEW');
-    setPublishTargetId('');
     setPublishError('');
-    // Load existing listings for the "add to existing" picker (best-effort).
-    catalogueService.getProducts().then(setCatalogueProducts).catch(() => setCatalogueProducts([]));
   };
   const closePublish = () => { if (!publishing) setPublishItem(null); };
 
@@ -273,29 +268,20 @@ export default function InventoryPage() {
       setPublishError('A catalogue image is required. Upload an image on the item (Edit) before publishing.');
       return;
     }
-    if (publishMode === 'EXISTING' && !publishTargetId) {
-      setPublishError('Choose the existing catalogue product to add this piece to.');
-      return;
-    }
-    if (publishMode === 'NEW' && publishSource === 'CATALOGUE_COST') {
+    if (publishSource === 'CATALOGUE_COST') {
       const p = parseFloat(publishPrice);
       if (isNaN(p) || p <= 0) { setPublishError('Enter a catalogue price greater than 0.'); return; }
     }
     setPublishing(true);
     setPublishError('');
     try {
-      if (publishMode === 'EXISTING') {
-        await billingService.publishInventoryItem(publishItem.id, { catalogueProductId: publishTargetId });
-      } else {
-        await billingService.publishInventoryItem(publishItem.id, {
-          pricingSource: publishSource,
-          cataloguePrice: publishSource === 'CATALOGUE_COST' ? parseFloat(publishPrice) : undefined,
-          subCategory: publishSubCat.trim() || undefined,
-          gstApplied: publishSource === 'SELLING_COST' ? publishGst : undefined,
-        });
-      }
-      const linkedId = publishMode === 'EXISTING' ? publishTargetId : undefined;
-      setItems((prev) => prev.map((i) => (i.id === publishItem.id ? { ...i, addToCatalogue: true, catalogueProductId: linkedId ?? i.catalogueProductId } : i)));
+      await billingService.publishInventoryItem(publishItem.id, {
+        pricingSource: publishSource,
+        cataloguePrice: publishSource === 'CATALOGUE_COST' ? parseFloat(publishPrice) : undefined,
+        subCategory: publishSubCat.trim() || undefined,
+        gstApplied: publishSource === 'SELLING_COST' ? publishGst : undefined,
+      });
+      setItems((prev) => prev.map((i) => (i.id === publishItem.id ? { ...i, addToCatalogue: true } : i)));
       setToast({ message: `${publishItem.productCode} published to catalogue`, type: 'success' });
       setPublishItem(null);
     } catch (err) {
@@ -445,6 +431,23 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {/* Gold-weight aggregate across ALL matching rows (server-side), not just
+       * the current page. */}
+      {!loading && !loadError && items.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+              <Scale className="h-5 w-5 text-gold" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Gold in Inventory</p>
+              <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldWeightGrams)}</p>
+              <p className="text-[10px] text-slate-400 font-medium">{total} item{total === 1 ? '' : 's'} matching filters</p>
+            </div>
+          </Card>
+        </div>
+      )}
+
       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-col lg:flex-row gap-2">
           <div className="relative flex-1 min-w-[220px]">
@@ -534,7 +537,7 @@ export default function InventoryPage() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {['Product Code', 'Name', 'Purity', 'Net Wt.', 'Vendor', 'Status', 'Catalogue', ''].map((h) => (
+                  {['Product Code', 'Name', 'Category', 'Sub-category', 'Purity', 'Net Wt.', 'Vendor', 'Status', 'Catalogue', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                       {h}
                     </th>
@@ -545,10 +548,9 @@ export default function InventoryPage() {
                 {items.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-4 py-3 text-xs font-mono font-bold text-[#0B0E23]">{item.productCode}</td>
-                    <td className="px-4 py-3 text-xs font-semibold text-[#0B0E23]">
-                      {item.productName}
-                      {item.category && <span className="block text-[10px] text-slate-400 font-medium">{item.category}</span>}
-                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold text-[#0B0E23]">{item.productName}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.category || '—'}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.subcategory || '—'}</td>
                     <td className="px-4 py-3 text-xs font-bold text-gold-dark">{item.purity}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{formatWeight(item.netGoldWeightGrams)}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.vendorName || '—'}</td>
@@ -755,8 +757,8 @@ export default function InventoryPage() {
               </Select>
             </Field>
             <Field label="Making Charge Value">
-              <Input type="number" step="0.01" min="0" value={form.makingChargeValue} disabled={isSold}
-                onChange={(e) => setForm({ ...form, makingChargeValue: parseFloat(e.target.value) || 0 })} />
+              <Input type="number" step="0.01" min="0" placeholder="Inherit default" value={form.makingChargeValue ?? ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, makingChargeValue: e.target.value === '' ? null : parseFloat(e.target.value) })} />
             </Field>
             <Field label="Wastage Type">
               <Select value={form.wastageType} disabled={isSold} onChange={(e) => setForm({ ...form, wastageType: e.target.value as ChargeType })}>
@@ -764,12 +766,12 @@ export default function InventoryPage() {
               </Select>
             </Field>
             <Field label="Wastage Value">
-              <Input type="number" step="0.01" min="0" value={form.wastageValue} disabled={isSold}
-                onChange={(e) => setForm({ ...form, wastageValue: parseFloat(e.target.value) || 0 })} />
+              <Input type="number" step="0.01" min="0" placeholder="Inherit default" value={form.wastageValue ?? ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, wastageValue: e.target.value === '' ? null : parseFloat(e.target.value) })} />
             </Field>
             <Field label="Gold Profit %">
-              <Input type="number" step="0.01" min="0" max="100" value={form.goldProfitPercent} disabled={isSold}
-                onChange={(e) => setForm({ ...form, goldProfitPercent: parseFloat(e.target.value) || 0 })} />
+              <Input type="number" step="0.01" min="0" max="100" placeholder="Inherit default" value={form.goldProfitPercent ?? ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, goldProfitPercent: e.target.value === '' ? null : parseFloat(e.target.value) })} />
             </Field>
             <Field label="Tax / GST (%) *">
               <Input type="number" step="0.01" min="0" max="100" value={form.taxRatePercent} disabled={isSold}
@@ -865,49 +867,7 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* Attach to an existing listing vs create a new one. */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Catalogue Listing</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setPublishMode('NEW'); setPublishError(''); }}
-                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
-                    publishMode === 'NEW' ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30' : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <p className="text-xs font-bold text-[#0B0E23]">Create new product</p>
-                  <p className="text-[10px] text-slate-500 font-medium">A fresh catalogue listing</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPublishMode('EXISTING'); setPublishError(''); }}
-                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
-                    publishMode === 'EXISTING' ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30' : 'border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <p className="text-xs font-bold text-[#0B0E23]">Add to existing product</p>
-                  <p className="text-[10px] text-slate-500 font-medium">Another piece of a listing</p>
-                </button>
-              </div>
-            </div>
-
-            {publishMode === 'EXISTING' && (
-              <Field label="Existing catalogue product *">
-                <Select value={publishTargetId} onChange={(e) => setPublishTargetId(e.target.value)}>
-                  <option value="">— Choose a listing —</option>
-                  {catalogueProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.category ? ` · ${p.category}` : ''}{p.purity ? ` · ${p.purity}` : ''}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            )}
-
-            {/* Pricing mode — only when creating a NEW listing. */}
-            {publishMode === 'NEW' && (
-            <>
+            {/* Catalogue pricing — single listing workflow. */}
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Catalogue Pricing</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -959,8 +919,6 @@ export default function InventoryPage() {
             <Field label="Sub-category (optional)">
               <Input value={publishSubCat} onChange={(e) => setPublishSubCat(e.target.value)} placeholder="e.g. Chain" />
             </Field>
-            </>
-            )}
 
             {publishError && (
               <p className="text-[11px] font-medium text-red-600">{publishError}</p>
@@ -973,10 +931,10 @@ export default function InventoryPage() {
           <Button
             onClick={handlePublish}
             isLoading={publishing}
-            disabled={!publishItem?.imageUrl || (publishMode === 'EXISTING' && !publishTargetId)}
+            disabled={!publishItem?.imageUrl}
             className="bg-[#2C6FBD] hover:bg-[#245a9c] text-white"
           >
-            {publishMode === 'EXISTING' ? 'Add to Product' : publishItem?.addToCatalogue ? 'Update Listing' : 'Publish to Catalogue'}
+            {publishItem?.addToCatalogue ? 'Update Listing' : 'Publish to Catalogue'}
           </Button>
         </DialogFooter>
       </Dialog>
