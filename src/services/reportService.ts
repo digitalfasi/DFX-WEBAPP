@@ -146,6 +146,34 @@ function mapTopCustomers(raw: BackendTopCustomersResponse): TopCustomersReport {
 }
 
 /* ------------------------------------------------------------------ */
+/* Top Customers by Sales Spend — Business Analytics ranking            */
+/* ------------------------------------------------------------------ */
+
+interface BackendTopCustomerBySales {
+  customer_id: string;
+  customer_name: string | null;
+  total_spent: number;
+  bill_count: number;
+}
+
+interface BackendTopCustomersBySalesResponse {
+  range: BackendDateRange;
+  customers: BackendTopCustomerBySales[];
+}
+
+export interface TopCustomerBySales {
+  customerId: string;
+  customerName: string | null;
+  totalSpent: number;
+  billCount: number;
+}
+
+export interface TopCustomersBySalesReport {
+  range: DateRange;
+  customers: TopCustomerBySales[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Enrollment Summary — Reports Active Passbooks KPI, Analytics retention */
 /* KPI + weekly trend chart                                            */
 /* ------------------------------------------------------------------ */
@@ -153,6 +181,7 @@ function mapTopCustomers(raw: BackendTopCustomersResponse): TopCustomersReport {
 interface BackendEnrollmentTrendPoint {
   period_label: string;
   new_enrollments: number;
+  maturity_amount?: number;
 }
 
 interface BackendEnrollmentSummary {
@@ -170,6 +199,7 @@ interface BackendEnrollmentSummary {
 export interface EnrollmentTrendPoint {
   label: string;
   newEnrollments: number;
+  maturityAmount: number;
 }
 
 export interface EnrollmentSummary {
@@ -196,7 +226,7 @@ function mapEnrollmentSummary(raw: BackendEnrollmentSummary): EnrollmentSummary 
     retentionRatePercent: raw.retention_rate_percent,
     conversionFunnelPercent: raw.conversion_funnel_percent,
     redemptionVelocityDays: raw.redemption_velocity_days,
-    dailyTrend: raw.daily_trend.map((t) => ({ label: t.period_label, newEnrollments: t.new_enrollments })),
+    dailyTrend: raw.daily_trend.map((t) => ({ label: t.period_label, newEnrollments: t.new_enrollments, maturityAmount: t.maturity_amount ?? 0 })),
   };
 }
 
@@ -311,7 +341,190 @@ function mapDashboardSummary(raw: BackendDashboardSummary): DashboardSummary {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Sales Trend + Sales by Category — Admin Dashboard (Module 13)        */
+/* ------------------------------------------------------------------ */
+
+interface BackendSalesTrendPoint {
+  period_label: string;
+  total_amount: number;
+  sale_count: number;
+  profit?: number;
+  gold_weight_grams?: number;
+}
+interface BackendSalesTrendResponse {
+  range: BackendDateRange;
+  trend: BackendSalesTrendPoint[];
+}
+export interface SalesTrendPoint {
+  label: string;
+  totalAmount: number;
+  saleCount: number;
+  profit: number;
+  goldWeightGrams: number;
+}
+export interface SalesTrend {
+  range: DateRange;
+  trend: SalesTrendPoint[];
+}
+
+interface BackendCategorySalesItem {
+  category: string;
+  total_sales: number;
+  bill_count: number;
+  percentage: number;
+}
+interface BackendSalesByCategoryResponse {
+  range: BackendDateRange;
+  total_sales: number;
+  categories: BackendCategorySalesItem[];
+}
+export interface CategorySalesItem {
+  category: string;
+  totalSales: number;
+  billCount: number;
+  percentage: number;
+}
+export interface SalesByCategory {
+  range: DateRange;
+  totalSales: number;
+  categories: CategorySalesItem[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Insights (Phase 10) — data-grounded, birthday reminder etc.         */
+/* ------------------------------------------------------------------ */
+
+export interface InsightItem {
+  id: string;
+  category: string;
+  title: string;
+  detail: string;
+  severity: 'info' | 'positive' | 'warning';
+  evidence: Record<string, unknown>;
+}
+interface BackendInsightsResponse {
+  range: BackendDateRange;
+  module: 'business' | 'scheme';
+  data_available: boolean;
+  insights: InsightItem[];
+  note: string | null;
+}
+export interface InsightsResult {
+  range: DateRange;
+  module: 'business' | 'scheme';
+  dataAvailable: boolean;
+  insights: InsightItem[];
+  note: string | null;
+}
+function mapInsights(raw: BackendInsightsResponse): InsightsResult {
+  return {
+    range: mapRange(raw.range),
+    module: raw.module,
+    dataAvailable: raw.data_available,
+    insights: raw.insights ?? [],
+    note: raw.note,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* AI Analyst (Phase 2A)                                               */
+/* ------------------------------------------------------------------ */
+
+export type AiPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface AiRecommendedAction {
+  priority: AiPriority;
+  title: string;
+  explanation: string;
+  metric?: string | null;
+}
+
+interface BackendAiAnalysis {
+  domain: 'BUSINESS' | 'SCHEME';
+  range: BackendDateRange;
+  available: boolean;
+  executive_summary: string;
+  key_findings: string[];
+  opportunities: string[];
+  risks: string[];
+  recommended_actions: AiRecommendedAction[];
+  generated_at: string | null;
+  model: string | null;
+  note: string | null;
+}
+
+export interface AiAnalysis {
+  domain: 'BUSINESS' | 'SCHEME';
+  range: DateRange;
+  available: boolean;
+  executiveSummary: string;
+  keyFindings: string[];
+  opportunities: string[];
+  risks: string[];
+  recommendedActions: AiRecommendedAction[];
+  generatedAt: string | null;
+  model: string | null;
+  note: string | null;
+}
+
 export const reportService = {
+  /** GET /api/v1/reports/sales-trend (Admin) — Business sales time-series. */
+  async getSalesTrend(params: ReportRangeParams = {}): Promise<SalesTrend> {
+    const res = await apiClient.get<{ report: BackendSalesTrendResponse }>(
+      `/reports/sales-trend${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      trend: r.trend.map((t) => ({
+        label: t.period_label,
+        totalAmount: t.total_amount,
+        saleCount: t.sale_count,
+        profit: t.profit ?? 0,
+        goldWeightGrams: t.gold_weight_grams ?? 0,
+      })),
+    };
+  },
+
+  /** GET /api/v1/reports/sales-by-category (Admin) — Top Selling Categories donut. */
+  async getSalesByCategory(params: ReportRangeParams = {}): Promise<SalesByCategory> {
+    const res = await apiClient.get<{ report: BackendSalesByCategoryResponse }>(
+      `/reports/sales-by-category${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      totalSales: r.total_sales,
+      categories: r.categories.map((c) => ({
+        category: c.category,
+        totalSales: c.total_sales,
+        billCount: c.bill_count,
+        percentage: c.percentage,
+      })),
+    };
+  },
+
+  /** GET /api/v1/reports/insights/business (Admin) — includes birthday insight (Phase 10). */
+  async getBusinessInsights(params: ReportRangeParams = {}): Promise<InsightsResult> {
+    const res = await apiClient.get<{ insights: BackendInsightsResponse }>(
+      `/reports/insights/business${buildQuery(params)}`,
+      { auth: true }
+    );
+    return mapInsights(res.data.insights);
+  },
+
+  /** GET /api/v1/reports/insights/scheme (Admin) — includes birthday insight (Phase 10). */
+  async getSchemeInsights(params: ReportRangeParams = {}): Promise<InsightsResult> {
+    const res = await apiClient.get<{ insights: BackendInsightsResponse }>(
+      `/reports/insights/scheme${buildQuery(params)}`,
+      { auth: true }
+    );
+    return mapInsights(res.data.insights);
+  },
+
   /** GET /api/v1/reports/payment-summary (Admin) */
   async getPaymentSummary(params: ReportRangeParams = {}): Promise<PaymentSummary> {
     const res = await apiClient.get<{ summary: BackendPaymentSummary }>(
@@ -321,13 +534,33 @@ export const reportService = {
     return mapPaymentSummary(res.data.summary);
   },
 
-  /** GET /api/v1/reports/top-customers (Admin) */
+  /** GET /api/v1/reports/top-customers (Admin) — scheme investment ranking. */
   async getTopCustomers(params: ReportRangeParams & { limit?: number } = {}): Promise<TopCustomersReport> {
     const res = await apiClient.get<{ report: BackendTopCustomersResponse }>(
       `/reports/top-customers${buildQuery(params)}`,
       { auth: true }
     );
     return mapTopCustomers(res.data.report);
+  },
+
+  /** GET /api/v1/reports/top-customers/business (Admin) — ranking by completed-sale spend. */
+  async getTopCustomersBusiness(
+    params: ReportRangeParams & { limit?: number } = {}
+  ): Promise<TopCustomersBySalesReport> {
+    const res = await apiClient.get<{ report: BackendTopCustomersBySalesResponse }>(
+      `/reports/top-customers/business${buildQuery(params)}`,
+      { auth: true }
+    );
+    const r = res.data.report;
+    return {
+      range: mapRange(r.range),
+      customers: r.customers.map((c) => ({
+        customerId: c.customer_id,
+        customerName: c.customer_name,
+        totalSpent: c.total_spent,
+        billCount: c.bill_count,
+      })),
+    };
   },
 
   /** GET /api/v1/reports/enrollment-summary (Admin) */
@@ -418,12 +651,48 @@ export const reportService = {
     );
     return res.data;
   },
+
+  /** POST /api/v1/reports/ai-analysis (Admin) — one call per explicit action. */
+  async analyzeWithAi(body: {
+    domain: 'BUSINESS' | 'SCHEME';
+    period?: ReportPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<AiAnalysis> {
+    const res = await apiClient.post<{ analysis: BackendAiAnalysis }>(
+      '/reports/ai-analysis',
+      {
+        domain: body.domain,
+        period: body.period,
+        date_from: body.dateFrom,
+        date_to: body.dateTo,
+      },
+      { auth: true }
+    );
+    const a = res.data.analysis;
+    return {
+      domain: a.domain,
+      range: mapRange(a.range),
+      available: a.available,
+      executiveSummary: a.executive_summary,
+      keyFindings: a.key_findings ?? [],
+      opportunities: a.opportunities ?? [],
+      risks: a.risks ?? [],
+      recommendedActions: a.recommended_actions ?? [],
+      generatedAt: a.generated_at,
+      model: a.model,
+      note: a.note,
+    };
+  },
 };
 
 export interface DashboardCards {
   overdue_enrollments: number;
   pending_kyc: number;
   pending_inspection: number;
+  /** Sellable inventory count (IN_STOCK). The data model has no quantity/reorder
+   *  threshold, so there is no true "low stock" metric — this is the honest one. */
+  items_in_stock: number;
 }
 
 export const dashboardCardsService = {
