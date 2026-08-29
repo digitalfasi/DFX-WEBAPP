@@ -221,7 +221,7 @@ export default function AdminEnrollmentsPage() {
             Scheme Enrollments
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Read-only view of every customer enrollment across your active and past schemes.
+            Every customer enrollment across your active and past schemes. Financial records are read-only; manage scheme credit, closure and remarks from View Details.
           </p>
         </div>
       </div>
@@ -328,7 +328,7 @@ export default function AdminEnrollmentsPage() {
               <div className="min-w-0">
                 <p className="text-sm font-bold text-[#0B0E23] truncate">{balance.customerName}</p>
                 <p className="text-[11px] text-slate-500 font-medium truncate">
-                  {balance.schemeName} · Customer {balance.customerId} · {balance.enrollmentNumber}
+                  {balance.schemeName} · {balance.enrollmentNumber}
                 </p>
               </div>
               <Badge variant={STATUS_VARIANT[balance.status]} dot>{balance.status}</Badge>

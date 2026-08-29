@@ -239,10 +239,16 @@ interface BackendInventoryItem {
   other_charges_amount: number;
   tax_rate_percent: number;
   pricing_mode: PricingMode | null;
+  add_to_catalogue: boolean;
+  catalogue_product_id: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
 }
+
+/** Catalogue publish pricing source. SELLING_COST = server-computed selling
+ *  price (client price rejected); CATALOGUE_COST = admin's manual catalogue price. */
+export type PricingSource = 'SELLING_COST' | 'CATALOGUE_COST';
 
 export interface InventoryItem {
   id: string;
@@ -271,6 +277,10 @@ export interface InventoryItem {
   otherChargesAmount: number;
   taxRatePercent: number;
   pricingMode: PricingMode | null;
+  /** Whether this item is already published to the catalogue. */
+  addToCatalogue: boolean;
+  /** Catalogue Product this piece is linked to (many pieces -> one listing). */
+  catalogueProductId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -302,6 +312,9 @@ export interface InventoryItemFormData {
   otherChargesAmount?: number;
   taxRatePercent: number;
   pricingMode?: PricingMode | null;
+  /** Set on create only — storage path from uploadInventoryStagingImage.
+   * Mandatory server-side to create; ignored by update. */
+  imageStoragePath?: string;
 }
 
 function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
@@ -332,6 +345,8 @@ function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
     otherChargesAmount: raw.other_charges_amount,
     taxRatePercent: raw.tax_rate_percent,
     pricingMode: raw.pricing_mode,
+    addToCatalogue: raw.add_to_catalogue ?? false,
+    catalogueProductId: raw.catalogue_product_id ?? null,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
   };
@@ -362,6 +377,9 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     other_charges_amount: data.otherChargesAmount ?? 0,
     tax_rate_percent: data.taxRatePercent,
     pricing_mode: data.pricingMode ?? null,
+    // Create-only; update ignores it. Omitted when absent so update payloads
+    // stay unchanged.
+    ...(data.imageStoragePath ? { image_storage_path: data.imageStoragePath } : {}),
   };
 }
 
@@ -1737,6 +1755,47 @@ export const billingService = {
       { auth: true }
     );
     return mapInventoryItem(res.data.item);
+  },
+
+  /** Upload a product image BEFORE the item exists. Returns the storage path
+   * to pass as imageStoragePath on createInventoryItem (image is mandatory). */
+  async uploadInventoryStagingImage(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.post<{ image_storage_path: string }>(
+      '/billing/inventory/image',
+      formData,
+      { auth: true }
+    );
+    return res.data.image_storage_path;
+  },
+
+  /* Inventory → Catalogue publishing.
+   * SELLING_COST: server computes the price (client must NOT send catalogue_price).
+   * CATALOGUE_COST: admin supplies catalogue_price (> 0).
+   * catalogueProductId: attach this piece to an existing listing (pricing ignored).
+   * A catalogue image is mandatory — the backend reuses the item's own uploaded
+   * image and rejects an item with none. */
+  async publishInventoryItem(
+    itemId: string,
+    req: {
+      pricingSource?: PricingSource;
+      cataloguePrice?: number;
+      subCategory?: string;
+      gstApplied?: boolean;
+      catalogueProductId?: string;
+    }
+  ): Promise<void> {
+    const body: Record<string, unknown> = {};
+    if (req.catalogueProductId) {
+      body.catalogue_product_id = req.catalogueProductId;
+    } else {
+      body.pricing_source = req.pricingSource;
+      if (req.pricingSource === 'CATALOGUE_COST') body.catalogue_price = req.cataloguePrice;
+      if (req.subCategory !== undefined) body.sub_category = req.subCategory;
+      if (req.gstApplied !== undefined) body.gst_applied = req.gstApplied;
+    }
+    await apiClient.post(`/billing/inventory/${itemId}/publish`, body, { auth: true });
   },
 
   /* Selling */

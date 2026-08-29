@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,11 +11,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck, Tags, CheckCircle2, AlertCircle } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
   InventoryItemFormData,
+  PricingSource,
   SaleReturn,
   Vendor,
   Purity,
@@ -26,7 +28,8 @@ import {
   PRICING_MODE_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency, formatWeight } from '@/lib/formatters';
+import { catalogueService, Product } from '@/services/catalogueService';
+import { formatWeight } from '@/lib/formatters';
 import { VendorQuickAddDialog } from '../_components/VendorQuickAddDialog';
 import { BulkPurchaseDialog } from '../_components/BulkPurchaseDialog';
 import { BillingDefaultsDialog } from '../_components/BillingDefaultsDialog';
@@ -65,6 +68,7 @@ const emptyForm: InventoryItemFormData = {
 };
 
 export default function InventoryPage() {
+  const router = useRouter();
   const [items, setItems] = useState<InventoryItem[]>([]);
   // Unfiltered snapshot backing the filter dropdown option lists.
   const [facetItems, setFacetItems] = useState<InventoryItem[]>([]);
@@ -140,6 +144,25 @@ export default function InventoryPage() {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // Create-only: the mandatory product image (uploaded before the item exists)
+  // and whether to jump straight into the catalogue publish flow after create.
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [createImagePreview, setCreateImagePreview] = useState<string>('');
+  const [addToCatalogueOnCreate, setAddToCatalogueOnCreate] = useState(false);
+
+  /* Inventory → Catalogue publish. Reuses the real backend publish endpoint;
+   * the catalogue image is the item's own uploaded image (mandatory). */
+  const [publishItem, setPublishItem] = useState<InventoryItem | null>(null);
+  const [publishSource, setPublishSource] = useState<PricingSource>('SELLING_COST');
+  const [publishPrice, setPublishPrice] = useState('');
+  const [publishSubCat, setPublishSubCat] = useState('');
+  const [publishGst, setPublishGst] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
+  // Attach to an existing listing vs create a new one (explicit choice).
+  const [publishMode, setPublishMode] = useState<'NEW' | 'EXISTING'>('NEW');
+  const [publishTargetId, setPublishTargetId] = useState('');
+  const [catalogueProducts, setCatalogueProducts] = useState<Product[]>([]);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -223,8 +246,63 @@ export default function InventoryPage() {
   const openCreateModal = () => {
     setEditingItem(null);
     setForm(emptyForm);
+    setCreateImageFile(null);
+    setCreateImagePreview('');
+    setAddToCatalogueOnCreate(false);
     setFormError('');
     setModalOpen(true);
+  };
+
+  const openPublish = (item: InventoryItem) => {
+    setPublishItem(item);
+    setPublishSource('SELLING_COST');
+    setPublishPrice('');
+    setPublishSubCat(item.subcategory || '');
+    setPublishGst(true);
+    setPublishMode('NEW');
+    setPublishTargetId('');
+    setPublishError('');
+    // Load existing listings for the "add to existing" picker (best-effort).
+    catalogueService.getProducts().then(setCatalogueProducts).catch(() => setCatalogueProducts([]));
+  };
+  const closePublish = () => { if (!publishing) setPublishItem(null); };
+
+  const handlePublish = async () => {
+    if (!publishItem) return;
+    if (!publishItem.imageUrl) {
+      setPublishError('A catalogue image is required. Upload an image on the item (Edit) before publishing.');
+      return;
+    }
+    if (publishMode === 'EXISTING' && !publishTargetId) {
+      setPublishError('Choose the existing catalogue product to add this piece to.');
+      return;
+    }
+    if (publishMode === 'NEW' && publishSource === 'CATALOGUE_COST') {
+      const p = parseFloat(publishPrice);
+      if (isNaN(p) || p <= 0) { setPublishError('Enter a catalogue price greater than 0.'); return; }
+    }
+    setPublishing(true);
+    setPublishError('');
+    try {
+      if (publishMode === 'EXISTING') {
+        await billingService.publishInventoryItem(publishItem.id, { catalogueProductId: publishTargetId });
+      } else {
+        await billingService.publishInventoryItem(publishItem.id, {
+          pricingSource: publishSource,
+          cataloguePrice: publishSource === 'CATALOGUE_COST' ? parseFloat(publishPrice) : undefined,
+          subCategory: publishSubCat.trim() || undefined,
+          gstApplied: publishSource === 'SELLING_COST' ? publishGst : undefined,
+        });
+      }
+      const linkedId = publishMode === 'EXISTING' ? publishTargetId : undefined;
+      setItems((prev) => prev.map((i) => (i.id === publishItem.id ? { ...i, addToCatalogue: true, catalogueProductId: linkedId ?? i.catalogueProductId } : i)));
+      setToast({ message: `${publishItem.productCode} published to catalogue`, type: 'success' });
+      setPublishItem(null);
+    } catch (err) {
+      setPublishError(err instanceof ApiError ? err.message : 'Could not publish to catalogue.');
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const openEditModal = (item: InventoryItem) => {
@@ -275,6 +353,8 @@ export default function InventoryPage() {
     if (form.purchaseCost === undefined || form.purchaseCost === null || form.purchaseCost <= 0) {
       return 'Purchase Cost (vendor cost) is required and must be greater than 0.';
     }
+    // A product image is mandatory to create (backend enforces this too).
+    if (!editingItem && !createImageFile) return 'A product image is required.';
     return null;
   };
 
@@ -290,13 +370,21 @@ export default function InventoryPage() {
       if (editingItem) {
         await billingService.updateInventoryItem(editingItem.id, form);
         setToast({ message: 'Inventory item updated successfully', type: 'success' });
+        setModalOpen(false);
+        loadItems();
+        loadFacets();
       } else {
-        await billingService.createInventoryItem(form);
+        // Mandatory image: upload first, then create with the returned path.
+        const imageStoragePath = await billingService.uploadInventoryStagingImage(createImageFile!);
+        const created = await billingService.createInventoryItem({ ...form, imageStoragePath });
         setToast({ message: 'Inventory item created successfully', type: 'success' });
+        setModalOpen(false);
+        loadItems();
+        loadFacets();
+        // Add to Catalogue = Yes → hand off to the existing publish flow, which
+        // requires the catalogue price. No duplicate publish logic here.
+        if (addToCatalogueOnCreate) openPublish(created);
       }
-      setModalOpen(false);
-      loadItems();
-      loadFacets();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Could not save the inventory item.');
     } finally {
@@ -446,7 +534,7 @@ export default function InventoryPage() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {['Product Code', 'Name', 'Purity', 'Net Wt.', 'Vendor', 'Status', ''].map((h) => (
+                  {['Product Code', 'Name', 'Purity', 'Net Wt.', 'Vendor', 'Status', 'Catalogue', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                       {h}
                     </th>
@@ -468,11 +556,40 @@ export default function InventoryPage() {
                       <Badge variant={STOCK_BADGE[item.stockStatus]} dot>{item.stockStatus.replace('_', ' ')}</Badge>
 
                     </td>
+                    <td className="px-4 py-3">
+                      {item.addToCatalogue ? (
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> In Catalogue
+                          </span>
+                          {item.catalogueProductId && (
+                            <button
+                              onClick={() => router.push(`/admin/catalogue/studio/${item.catalogueProductId}`)}
+                              className="text-[10px] font-bold text-[#2C6FBD] hover:underline"
+                            >
+                              View Product
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-400">Not listed</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <Button size="icon" variant="ghost" onClick={() => openEditModal(item)} aria-label="Edit">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {item.stockStatus === 'IN_STOCK' && !item.addToCatalogue && (
+                          <Button size="sm" onClick={() => openPublish(item)} className="bg-[#2C6FBD] hover:bg-[#245a9c] text-white">
+                            <Tags className="h-3.5 w-3.5 mr-1" /> Add to Catalogue
+                          </Button>
+                        )}
+                        {item.stockStatus === 'IN_STOCK' && item.addToCatalogue && (
+                          <Button size="sm" variant="outline" onClick={() => openPublish(item)}>
+                            Update Listing
+                          </Button>
+                        )}
                         {item.stockStatus === 'IN_STOCK' && (
                           <Button size="sm" variant="outline" onClick={() => handleRetireItem(item)}>
                             Retire
@@ -528,6 +645,35 @@ export default function InventoryPage() {
                 {uploadingImage ? 'Uploading...' : 'Upload Photo'}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingImage} onChange={handleImageChange} />
               </label>
+            </div>
+          )}
+
+          {!editingItem && (
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
+                {createImagePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={createImagePreview} alt="preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-5 w-5 text-slate-300" />
+                )}
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gold-dark cursor-pointer hover:underline">
+                  {createImageFile ? 'Change Photo' : 'Upload Photo *'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setCreateImageFile(f);
+                      setCreateImagePreview(f ? URL.createObjectURL(f) : '');
+                    }}
+                  />
+                </label>
+                <p className="text-[10px] text-slate-400 mt-0.5">Required · JPEG, PNG or WebP</p>
+              </div>
             </div>
           )}
 
@@ -635,6 +781,25 @@ export default function InventoryPage() {
               </Select>
             </Field>
           </div>
+
+          {!editingItem && (
+            <div className="pt-3 border-t border-slate-100">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addToCatalogueOnCreate}
+                  onChange={(e) => setAddToCatalogueOnCreate(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-slate-300 text-gold focus:ring-gold/30 accent-gold"
+                />
+                Add to Catalogue after creating?
+              </label>
+              {addToCatalogueOnCreate && (
+                <p className="text-[10px] text-slate-400 mt-1">
+                  After the item is created, the Catalogue publish step opens — Catalogue Price is required there.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -666,6 +831,155 @@ export default function InventoryPage() {
         }}
       />
       <BillingDefaultsDialog isOpen={defaultsDialogOpen} onClose={() => setDefaultsDialogOpen(false)} />
+
+      {/* Inventory → Catalogue publish */}
+      <Dialog
+        isOpen={!!publishItem}
+        onClose={closePublish}
+        title={publishItem?.addToCatalogue ? 'Update Catalogue Listing' : 'Add to Catalogue'}
+        maxWidth="max-w-lg"
+      >
+        {publishItem && (
+          <div className="space-y-4">
+            {/* Product + image preview */}
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
+                {publishItem.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={publishItem.imageUrl} alt={publishItem.productName} className="w-full h-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-5 w-5 text-slate-300" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#0B0E23] truncate">{publishItem.productName}</p>
+                <p className="text-[11px] font-mono text-slate-500">{publishItem.productCode} · {publishItem.purity}</p>
+              </div>
+            </div>
+
+            {/* Image requirement — the backend uses the item's own image and rejects none. */}
+            {!publishItem.imageUrl && (
+              <div className="flex items-start gap-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>A catalogue image is required. Close this, open <strong>Edit</strong> on the item, upload a photo, then publish.</span>
+              </div>
+            )}
+
+            {/* Attach to an existing listing vs create a new one. */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Catalogue Listing</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPublishMode('NEW'); setPublishError(''); }}
+                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                    publishMode === 'NEW' ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-xs font-bold text-[#0B0E23]">Create new product</p>
+                  <p className="text-[10px] text-slate-500 font-medium">A fresh catalogue listing</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPublishMode('EXISTING'); setPublishError(''); }}
+                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                    publishMode === 'EXISTING' ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-xs font-bold text-[#0B0E23]">Add to existing product</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Another piece of a listing</p>
+                </button>
+              </div>
+            </div>
+
+            {publishMode === 'EXISTING' && (
+              <Field label="Existing catalogue product *">
+                <Select value={publishTargetId} onChange={(e) => setPublishTargetId(e.target.value)}>
+                  <option value="">— Choose a listing —</option>
+                  {catalogueProducts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.category ? ` · ${p.category}` : ''}{p.purity ? ` · ${p.purity}` : ''}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+
+            {/* Pricing mode — only when creating a NEW listing. */}
+            {publishMode === 'NEW' && (
+            <>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Catalogue Pricing</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPublishSource('SELLING_COST'); setPublishError(''); }}
+                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                    publishSource === 'SELLING_COST'
+                      ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-xs font-bold text-[#0B0E23]">Selling Price</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Server-computed from billing rules</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPublishSource('CATALOGUE_COST'); setPublishError(''); }}
+                  className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                    publishSource === 'CATALOGUE_COST'
+                      ? 'border-[#2C6FBD] bg-[#2C6FBD]/5 ring-1 ring-[#2C6FBD]/30'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-xs font-bold text-[#0B0E23]">Catalogue Price</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Manual price you set</p>
+                </button>
+              </div>
+            </div>
+
+            {publishSource === 'CATALOGUE_COST' && (
+              <Field label="Catalogue Price (₹) *">
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={publishPrice}
+                  onChange={(e) => setPublishPrice(e.target.value)}
+                  placeholder="e.g. 85000"
+                />
+              </Field>
+            )}
+
+            {publishSource === 'SELLING_COST' && (
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                <input type="checkbox" className="accent-[#2C6FBD] w-4 h-4" checked={publishGst} onChange={(e) => setPublishGst(e.target.checked)} />
+                Apply GST in the computed selling price
+              </label>
+            )}
+
+            <Field label="Sub-category (optional)">
+              <Input value={publishSubCat} onChange={(e) => setPublishSubCat(e.target.value)} placeholder="e.g. Chain" />
+            </Field>
+            </>
+            )}
+
+            {publishError && (
+              <p className="text-[11px] font-medium text-red-600">{publishError}</p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={closePublish} disabled={publishing}>Cancel</Button>
+          <Button
+            onClick={handlePublish}
+            isLoading={publishing}
+            disabled={!publishItem?.imageUrl || (publishMode === 'EXISTING' && !publishTargetId)}
+            className="bg-[#2C6FBD] hover:bg-[#245a9c] text-white"
+          >
+            {publishMode === 'EXISTING' ? 'Add to Product' : publishItem?.addToCatalogue ? 'Update Listing' : 'Publish to Catalogue'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 

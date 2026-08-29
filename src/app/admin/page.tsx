@@ -4,12 +4,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ShoppingBag, UserPlus, CreditCard, FilePlus2, Coins, Wallet, LayoutGrid,
-  Receipt, TrendingUp, ArrowUpRight, ArrowDownRight, ArrowRight, Calendar,
-  Package, Landmark, Users, AlertTriangle, Bell, Cake, PackageSearch, ShieldAlert,
+  Receipt, Calendar,
+  Landmark, Users, AlertTriangle, Bell, Cake, PackageSearch, ShieldAlert,
   Info, FileText, Menu, Settings, LogOut,
 } from 'lucide-react';
 import {
-  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,8 +27,8 @@ import {
   GoldRateTrendReport, SalesTrend, SalesByCategory, InsightsResult, EnrollmentSummary,
   dashboardCardsService, DashboardCards,
 } from '@/services/reportService';
-import { billingService, BillingDashboardSummary, Sale, SalePaymentStatus } from '@/services/billingService';
-import { enrollmentService, AdminEnrollment, EnrollmentStatus } from '@/services/enrollmentService';
+import { billingService, BillingDashboardSummary, Sale } from '@/services/billingService';
+import { enrollmentService, AdminEnrollment } from '@/services/enrollmentService';
 
 const BUSINESS_BLUE = '#2C6FBD';
 const SCHEME_GOLD = '#E8A33D';
@@ -131,20 +131,6 @@ const ENROLL_STATUS_BADGE: Record<string, 'success' | 'pending' | 'warn' | 'dang
   ACTIVE: 'success', COMPLETED: 'gold', CLOSED: 'neutral', CANCELLED: 'danger',
 };
 
-function GrowthPill({ value, accent }: { value: number | null; accent: string }) {
-  if (value === null || value === undefined) {
-    return <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200">—</span>;
-  }
-  const up = value >= 0;
-  const Icon = up ? ArrowUpRight : ArrowDownRight;
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
-      up ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-red-700 bg-red-50 border-red-200'}`}>
-      <Icon className="w-3 h-3" style={{ color: accent }} />{up ? '+' : ''}{value.toFixed(1)}%
-    </span>
-  );
-}
-
 interface KpiSpec {
   title: string; value: string; growth: number | null; sub: string; icon: React.ElementType; href: string; danger?: boolean;
 }
@@ -246,8 +232,13 @@ export default function AdminDashboardPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [todayLabel, setTodayLabel] = useState('');
+  // Greeting resolves client-side (hour-based) to avoid an SSR/client mismatch.
+  const [greeting, setGreeting] = useState('Welcome');
   useEffect(() => {
-    setTodayLabel(new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+    const now = new Date();
+    setTodayLabel(now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+    const h = now.getHours();
+    setGreeting(h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening');
   }, []);
 
   const [loading, setLoading] = useState(true);
@@ -485,7 +476,6 @@ export default function AdminDashboardPage() {
   }));
   const bizUnit = bizMetric === 'gold' ? 'grams' : 'inr';
   const bizMetricLabel = BIZ_METRICS.find((m) => m.value === bizMetric)!.label;
-  const salesChart = bizSeries; // top-KPI sparkline reuse (sales metric by default)
 
   // Scheme chart series/unit by metric.
   const schemeSource =
@@ -534,7 +524,7 @@ export default function AdminDashboardPage() {
             <Menu className="w-5 h-5" />
           </button>
           <div className="min-w-0">
-            <h1 className="font-display font-extrabold text-xl sm:text-2xl text-[#0B0E23]">Good Morning, {user?.name || 'Admin'} 👋</h1>
+            <h1 className="font-display font-extrabold text-xl sm:text-2xl text-[#0B0E23]">{greeting}, {user?.name || 'Admin'} 👋</h1>
             <p className="text-xs text-slate-500 font-medium mt-0.5">Here&apos;s what&apos;s happening in your business today.</p>
           </div>
         </div>
@@ -850,60 +840,6 @@ export default function AdminDashboardPage() {
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
-  );
-}
-
-function Sparkline({ data, color, id }: { data: { x: string; y: number }[]; color: string; id: string }) {
-  // Need >=2 real points for a line; a single point renders a stray floating dot.
-  const valid = data.filter((d) => typeof d.y === 'number');
-  if (valid.length < 2 || valid.every((d) => !d.y)) return null;
-  return (
-    <div className="h-full w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={valid} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.25} />
-              <stop offset="100%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <Area type="monotone" dataKey="y" stroke={color} strokeWidth={1.75} fill={`url(#${id})`} dot={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function TopKpi({ title, tag, value, growth, icon, accent, tint, spark, sparkId, onClick }: {
-  title: string; tag?: string; value: string; growth: number | null; icon: React.ElementType;
-  accent: string; tint: string; spark?: { x: string; y: number }[]; sparkId?: string; onClick: () => void;
-}) {
-  const Icon = icon;
-  const up = growth !== null && growth >= 0;
-  const TrendIcon = up ? ArrowUpRight : ArrowDownRight;
-  return (
-    <button onClick={onClick} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs text-left hover:shadow-sm transition-all flex flex-col min-h-[132px]">
-      <div className="flex items-start gap-2.5">
-        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: tint, color: accent }}>
-          <Icon className="w-5 h-5" />
-        </span>
-        <span className="text-[11px] font-semibold text-slate-500 leading-snug pt-0.5">{title}{tag ? ` (${tag})` : ''}</span>
-      </div>
-      <div className="text-xl font-extrabold text-[#0B0E23] font-display mt-2 truncate">{value}</div>
-      <div className="h-4 mt-0.5">
-        {growth !== null && (
-          <div className="flex items-center gap-1 text-[11px]">
-            <TrendIcon className={`w-3.5 h-3.5 ${up ? 'text-emerald-600' : 'text-red-600'}`} />
-            <span className={`font-bold ${up ? 'text-emerald-600' : 'text-red-600'}`}>{up ? '+' : ''}{growth.toFixed(1)}%</span>
-            <span className="text-slate-400 font-medium">vs yesterday</span>
-          </div>
-        )}
-      </div>
-      {/* Fixed sparkline slot — keeps all cards equal height whether or not a real series exists. */}
-      <div className="h-8 mt-auto pt-1">
-        {spark && sparkId && <Sparkline data={spark} color={accent} id={sparkId} />}
-      </div>
-    </button>
   );
 }
 

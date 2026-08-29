@@ -11,7 +11,7 @@ import { Receipt, Search, FileX, Download, Wallet, Undo2, PackageCheck } from 'l
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/form-controls';
 import {
-  billingService, Sale, PaymentStatus, PaymentMethod, SalePaymentHistory,
+  billingService, Sale, PaymentMethod, SalePaymentHistory,
   PAYMENT_METHOD_OPTIONS, SALES_HISTORY_PERIODS, SalesHistoryPeriod,
   SalePaymentStatus, SaleStatus, SaleReturn, SaleReturnPreview, ReturnType,
   SalesExportField,

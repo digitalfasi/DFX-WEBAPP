@@ -211,7 +211,7 @@ export default function AdminSchemesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h1 className="font-display font-extrabold text-2xl text-[#0B0E23]">
-            Gold Saving Schemes Management
+            Gold Savings Schemes Management
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
             Configure schemes and the monthly-amount tiers customers select when they join.

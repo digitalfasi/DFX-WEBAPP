@@ -1220,13 +1220,19 @@ function PriceComparisonPanel({
       </div>
 
       <div className="pt-3 border-t border-slate-100 space-y-2">
-        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Customer Price</label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Customer Price</label>
+          {recalculating && <span className="text-[10px] font-semibold text-slate-400">Updating…</span>}
+        </div>
+        {/* Never disabled while recalculating — the Admin must be able to type the
+         * full price without the field locking. Recalc is debounced, sequenced and
+         * abortable, so the newest input always wins and updates the breakdown; the
+         * typed value itself is never overwritten by an in-flight response. */}
         <Input
           type="number"
           step="0.01"
           min="0"
           value={customerPrice}
-          disabled={recalculating}
           onChange={(e) => onCustomerPriceChange(e.target.value)}
           onBlur={(e) => onCustomerPriceCommit(e.target.value)}
           className="text-center text-2xl font-mono font-extrabold h-16"
