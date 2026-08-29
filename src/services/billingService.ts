@@ -452,6 +452,112 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
   };
 }
 
+/* ── Quotation ("sample bill" that does not sell) — Phase 4 backend ── */
+
+export interface QuotationSchemePreviewItem {
+  enrollmentId: string;
+  enrollmentNumber: string;
+  requestedAmount: number;
+  availableBalance: number;
+  appliedAmount: number;
+}
+
+export interface Quotation {
+  id: string;
+  quotationNumber: string;
+  inventoryItemId: string | null;
+  productCode: string;
+  productName: string;
+  customerId: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  breakdown: PriceBreakdown;
+  gstApplied: boolean;
+  finalAmount: number;
+  schemeAmountTotal: number;
+  outstandingAmount: number;
+  schemePreview: QuotationSchemePreviewItem[];
+  /** Admin-only number; null for non-privileged. Label is shown to all. */
+  estimatedGrossMargin: number | null;
+  profitOrLossLabel: string | null;
+  note: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface QuotationCreateData {
+  productCode: string;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  discountAmount?: number;
+  customerPrice?: number;
+  gstApplied?: boolean;
+  /* Per-bill overrides so the quotation figures match the previewed sale bill.
+   * A value override carries its own type so it is never reinterpreted. */
+  makingChargeType?: ChargeType;
+  makingChargeValue?: number;
+  wastageType?: ChargeType;
+  wastageValue?: number;
+  goldProfitPercent?: number;
+  note?: string;
+}
+
+interface BackendQuotation {
+  id: string;
+  quotation_number: string;
+  inventory_item_id: string | null;
+  product_code: string;
+  product_name: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  breakdown: BackendPriceBreakdown;
+  gst_applied: boolean;
+  final_amount: number;
+  scheme_amount_total: number;
+  outstanding_amount: number;
+  scheme_preview: {
+    enrollment_id: string; enrollment_number: string; requested_amount: number;
+    available_balance: number; applied_amount: number;
+  }[];
+  estimated_gross_margin: number | null;
+  profit_or_loss_label: string | null;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+function mapQuotation(raw: BackendQuotation): Quotation {
+  return {
+    id: raw.id,
+    quotationNumber: raw.quotation_number,
+    inventoryItemId: raw.inventory_item_id,
+    productCode: raw.product_code,
+    productName: raw.product_name,
+    customerId: raw.customer_id,
+    customerName: raw.customer_name,
+    customerPhone: raw.customer_phone,
+    breakdown: mapBreakdown(raw.breakdown),
+    gstApplied: raw.gst_applied,
+    finalAmount: raw.final_amount,
+    schemeAmountTotal: raw.scheme_amount_total,
+    outstandingAmount: raw.outstanding_amount,
+    schemePreview: (raw.scheme_preview ?? []).map((s) => ({
+      enrollmentId: s.enrollment_id,
+      enrollmentNumber: s.enrollment_number,
+      requestedAmount: s.requested_amount,
+      availableBalance: s.available_balance,
+      appliedAmount: s.applied_amount,
+    })),
+    estimatedGrossMargin: raw.estimated_gross_margin,
+    profitOrLossLabel: raw.profit_or_loss_label,
+    note: raw.note,
+    createdBy: raw.created_by,
+    createdAt: raw.created_at,
+  };
+}
+
 /** One suggested charge trim to reach a lower requested price. */
 export interface SafePriceReduction {
   component: string; // MAKING | WASTAGE | GOLD_PROFIT
@@ -1244,6 +1350,28 @@ function mapDraftListItem(raw: any): BillDraftListItem {
 }
 
 export const billingService = {
+  /* Quotation ("sample bill") — backend computes and persists all figures.
+   * Nothing is sold and no scheme balance is spent. */
+  async createQuotation(data: QuotationCreateData): Promise<Quotation> {
+    const body: Record<string, unknown> = {
+      product_code: data.productCode,
+      gst_applied: data.gstApplied ?? true,
+      discount_amount: data.discountAmount ?? 0,
+    };
+    if (data.customerId) body.customer_id = data.customerId;
+    if (data.customerName) body.customer_name = data.customerName;
+    if (data.customerPhone) body.customer_phone = data.customerPhone;
+    if (data.customerPrice !== undefined) body.customer_price = data.customerPrice;
+    if (data.makingChargeType !== undefined) body.making_charge_type = data.makingChargeType;
+    if (data.makingChargeValue !== undefined) body.making_charge_value = data.makingChargeValue;
+    if (data.wastageType !== undefined) body.wastage_type = data.wastageType;
+    if (data.wastageValue !== undefined) body.wastage_value = data.wastageValue;
+    if (data.goldProfitPercent !== undefined) body.gold_profit_percent = data.goldProfitPercent;
+    if (data.note !== undefined) body.note = data.note;
+    const res = await apiClient.post<{ quotation: BackendQuotation }>('/billing/quotation', body, { auth: true });
+    return mapQuotation(res.data.quotation);
+  },
+
   /* Vendors */
   async listVendors(search?: string): Promise<Vendor[]> {
     const query = search ? `?search=${encodeURIComponent(search)}` : '';

@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/form-controls';
 import { Toast } from '@/components/ui/toast';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem } from 'lucide-react';
+import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem, FileText } from 'lucide-react';
 import {
   billingService, SaleQuote, Sale, PaymentMethod, PaymentStatus, SafePriceGuidance,
   PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
+import { printQuotation } from '../_components/printQuotation';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
@@ -36,6 +37,9 @@ export default function NewSalePage() {
   const [makingValue, setMakingValue] = useState('');
   const [wastageValue, setWastageValue] = useState('');
   const [goldProfitPct, setGoldProfitPct] = useState('');
+  // Quotation ("sample bill") — non-destructive: nothing is sold, no scheme
+  // balance spent. Every figure comes from the backend quotation response.
+  const [quotationBusy, setQuotationBusy] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [priceError, setPriceError] = useState('');
 
@@ -503,6 +507,42 @@ export default function NewSalePage() {
   const priceBlocked =
     safePrice?.status === 'PURCHASE_COST_REQUIRED' || safePrice?.status === 'NOT_ACHIEVABLE';
   const canConfirm = customerIdentified && partialAmountOk && schemePlusCashOk && !priceBlocked;
+
+  /* Generate a quotation ("sample bill"). Non-destructive: the backend records
+   * a quotation but sells nothing, spends no scheme balance and writes no sale
+   * ledger entry. The figures come from the same pricing inputs as the live
+   * bill, then the printable document opens in its own window. */
+  const generateQuotation = async () => {
+    if (!quote || quotationBusy) return;
+    setQuotationBusy(true);
+    try {
+      const q = await billingService.createQuotation({
+        productCode: quote.inventoryItem.productCode,
+        customerId: customerId || undefined,
+        customerName: customerName || undefined,
+        customerPhone: customerPhone || undefined,
+        customerPrice: num(customerPrice),
+        gstApplied,
+        makingChargeType: quote.breakdown.makingChargeType ?? undefined,
+        makingChargeValue: num(makingValue),
+        wastageType: quote.breakdown.wastageType ?? undefined,
+        wastageValue: num(wastageValue),
+        goldProfitPercent: num(goldProfitPct),
+      });
+      printQuotation(q, {
+        storeName: branding.brandName,
+        category: quote.inventoryItem.category,
+        subcategory: quote.inventoryItem.subcategory,
+        grossWeightGrams: quote.inventoryItem.grossWeightGrams,
+        netGoldWeightGrams: quote.inventoryItem.netGoldWeightGrams,
+        huid: quote.inventoryItem.huid,
+      });
+    } catch (err) {
+      setToast({ message: err instanceof ApiError ? err.message : 'Could not generate the quotation.', type: 'error' });
+    } finally {
+      setQuotationBusy(false);
+    }
+  };
 
   const handleCompleteSale = async () => {
     if (!quote) return;
@@ -1029,6 +1069,16 @@ export default function NewSalePage() {
           )}
 
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="h-12"
+              isLoading={quotationBusy}
+              disabled={recalculating}
+              onClick={generateQuotation}
+              title="Generate a printable quotation / sample bill — nothing is sold"
+            >
+              <FileText className="h-4 w-4 mr-1.5" /> Quotation
+            </Button>
             <Button
               variant="outline"
               className="h-12"
