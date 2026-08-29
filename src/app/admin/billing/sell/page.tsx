@@ -11,7 +11,7 @@ import { Toast } from '@/components/ui/toast';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem } from 'lucide-react';
 import {
-  billingService, SaleQuote, Sale, PaymentMethod, PaymentStatus,
+  billingService, SaleQuote, Sale, PaymentMethod, PaymentStatus, SafePriceGuidance,
   PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
@@ -495,7 +495,14 @@ export default function NewSalePage() {
   const schemeOutstanding = schemeApplied
     ? Math.max(0, Number((invoiceTotal - parsedSchemeAmount - cashNow).toFixed(2)))
     : 0;
-  const canConfirm = customerIdentified && partialAmountOk && schemePlusCashOk;
+  // Backend safe-price guidance gates finalization. PURCHASE_COST_REQUIRED =
+  // the item has no vendor cost (cannot be safely sold until one is entered);
+  // NOT_ACHIEVABLE = the requested price is below break-even (would be a loss).
+  // The backend independently rejects both — this only prevents the click.
+  const safePrice = quote?.safePrice ?? null;
+  const priceBlocked =
+    safePrice?.status === 'PURCHASE_COST_REQUIRED' || safePrice?.status === 'NOT_ACHIEVABLE';
+  const canConfirm = customerIdentified && partialAmountOk && schemePlusCashOk && !priceBlocked;
 
   const handleCompleteSale = async () => {
     if (!quote) return;
@@ -1011,6 +1018,10 @@ export default function NewSalePage() {
 
           <PriceBreakdownCard breakdown={quote.breakdown} />
 
+          {safePrice && (
+            <SafePricePanel guidance={safePrice} currentPrice={quote.breakdown.finalAmount} />
+          )}
+
           {!customerIdentified && (
             <p className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Enter a customer name (or an existing Customer ID) to continue.
@@ -1225,6 +1236,57 @@ function ProfitView({
         {word}{marginPercent !== null ? ` · ${marginPercent.toFixed(2)}%` : ''}
       </p>
       <p className="text-[9px] text-slate-400 font-medium mt-0.5">{hint}</p>
+    </div>
+  );
+}
+
+/** Backend-authoritative safe-price / discount guidance. Every figure comes
+ * from the quote's safe_price payload — nothing is recomputed here. */
+function SafePricePanel({ guidance, currentPrice }: { guidance: SafePriceGuidance; currentPrice: number }) {
+  const { status, minimumSafePrice, message, isLoss } = guidance;
+  const roomToDrop =
+    minimumSafePrice !== null ? Math.max(0, Number((currentPrice - minimumSafePrice).toFixed(2))) : null;
+
+  if (status === 'PURCHASE_COST_REQUIRED') {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-red-700">Purchase Cost Required</p>
+        <p className="text-[11px] font-medium text-red-700 mt-0.5">{message}</p>
+        <p className="text-[10px] text-red-500 font-medium mt-1">
+          Open this item in Inventory, enter its vendor Purchase Cost, then reload the bill. Sale is blocked until then.
+        </p>
+      </div>
+    );
+  }
+
+  const blocked = status === 'NOT_ACHIEVABLE';
+  const box = blocked
+    ? 'border-red-200 bg-red-50'
+    : status === 'ADJUSTABLE' ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50';
+  const head = blocked ? 'text-red-700' : status === 'ADJUSTABLE' ? 'text-amber-800' : 'text-emerald-700';
+  const title = blocked ? 'Below Safe Price' : status === 'ADJUSTABLE' ? 'Discount Within Limit' : 'Safe Price';
+
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 ${box}`}>
+      <div className="flex items-center justify-between">
+        <p className={`text-[11px] font-bold uppercase tracking-wider ${head}`}>{title}</p>
+        {isLoss && <span className="text-[10px] font-bold text-red-600 uppercase">Loss</span>}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
+        <Stat label="Current Price" value={formatCurrency(currentPrice)} />
+        {minimumSafePrice !== null && <Stat label="Minimum Safe Price" value={formatCurrency(minimumSafePrice)} />}
+        {roomToDrop !== null && <Stat label="Max Further Discount" value={formatCurrency(roomToDrop)} />}
+      </div>
+      {message && <p className={`text-[11px] font-medium mt-1.5 ${head}`}>{message}</p>}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+      <p className="font-mono font-bold text-xs text-[#0B0E23]">{value}</p>
     </div>
   );
 }

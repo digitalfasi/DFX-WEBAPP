@@ -66,6 +66,8 @@ const emptyForm: InventoryItemFormData = {
 
 export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
+  // Unfiltered snapshot backing the filter dropdown option lists.
+  const [facetItems, setFacetItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -121,6 +123,11 @@ export default function InventoryPage() {
     }
   };
   const [vendorFilter, setVendorFilter] = useState('');
+  // Client-side refinements over the loaded set (server already filtered by
+  // search/status/vendor). Kept consistent with Clear (one click resets all).
+  const [fCategory, setFCategory] = useState('');
+  const [fSubcategory, setFSubcategory] = useState('');
+  const [fPurity, setFPurity] = useState('');
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
@@ -136,6 +143,8 @@ export default function InventoryPage() {
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // ALL six filters are applied server-side so results never miss inventory
+  // outside the loaded page.
   const loadItems = async () => {
     setLoading(true);
     setLoadError('');
@@ -144,6 +153,9 @@ export default function InventoryPage() {
         search: search || undefined,
         stockStatus: statusFilter || undefined,
         vendorId: vendorFilter || undefined,
+        category: fCategory || undefined,
+        subcategory: fSubcategory || undefined,
+        purity: fPurity || undefined,
         limit: 100,
       });
       setItems(res.items);
@@ -152,6 +164,18 @@ export default function InventoryPage() {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load inventory.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Dropdown option lists come from an UNFILTERED snapshot so a chosen filter
+  // never shrinks the choices available in the other selects. Refreshed on
+  // mount and after any create/edit that could introduce a new value.
+  const loadFacets = async () => {
+    try {
+      const res = await billingService.listInventory({ limit: 100 });
+      setFacetItems(res.items);
+    } catch {
+      // Non-fatal — selects just fall back to whatever is currently loaded.
     }
   };
 
@@ -165,13 +189,36 @@ export default function InventoryPage() {
 
   useEffect(() => {
     loadVendors();
+    loadFacets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, vendorFilter]);
+  }, [statusFilter, vendorFilter, fCategory, fSubcategory, fPurity]);
+
+  const uniq = (xs: (string | null | undefined)[]) =>
+    Array.from(new Set(xs.map((x) => (x || '').trim()).filter(Boolean))).sort();
+  const facetSource = facetItems.length ? facetItems : items;
+  const categoryOptions = uniq(facetSource.map((i) => i.category));
+  const subcategoryOptions = uniq(
+    facetSource.filter((i) => !fCategory || i.category === fCategory).map((i) => i.subcategory)
+  );
+  const purityOptions = uniq(facetSource.map((i) => i.purity));
+  const filtersActive = !!(search || statusFilter || vendorFilter || fCategory || fSubcategory || fPurity);
+
+  const clearAllFilters = () => {
+    setFCategory('');
+    setFSubcategory('');
+    setFPurity('');
+    setSearch('');
+    setStatusFilter('');
+    setVendorFilter('');
+    // search is applied on loadItems; status/vendor also re-fire it via effect,
+    // but call once here so a Clear with only search set still reloads.
+    loadItems();
+  };
 
   const openCreateModal = () => {
     setEditingItem(null);
@@ -203,7 +250,8 @@ export default function InventoryPage() {
       wastageValue: item.wastageValue,
       goldProfitPercent: item.goldProfitPercent,
       taxRatePercent: item.taxRatePercent,
-      pricingMode: item.pricingMode || 'AUTO',
+      // Legacy HYBRID label collapses to AUTO — HYBRID is retired as a pricing mode.
+      pricingMode: (item.pricingMode === 'MANUAL' ? 'MANUAL' : 'AUTO'),
     });
     setFormError('');
     setModalOpen(true);
@@ -219,6 +267,13 @@ export default function InventoryPage() {
     if (form.netGoldWeightGrams > form.grossWeightGrams) return 'Net Gold Weight cannot exceed Gross Weight.';
     if (form.taxRatePercent === undefined || form.taxRatePercent === null || form.taxRatePercent < 0) {
       return 'Tax/GST rate is required.';
+    }
+    // Vendor Purchase Cost is compulsory — it is the basis for vendor-cost
+    // profit and break-even/safe-price guidance. An item cannot be created (or
+    // saved) without it; a legacy null-cost item must have it filled before it
+    // can be sold.
+    if (form.purchaseCost === undefined || form.purchaseCost === null || form.purchaseCost <= 0) {
+      return 'Purchase Cost (vendor cost) is required and must be greater than 0.';
     }
     return null;
   };
@@ -241,6 +296,7 @@ export default function InventoryPage() {
       }
       setModalOpen(false);
       loadItems();
+      loadFacets();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Could not save the inventory item.');
     } finally {
@@ -301,32 +357,52 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <Input
-            placeholder="Search by product code or name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadItems()}
-            className="pl-9"
-          />
+      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-col lg:flex-row gap-2">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search by product code or name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && loadItems()}
+              className="pl-9 h-10"
+            />
+          </div>
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StockStatus | '')}
+            className="h-10 w-full sm:w-[170px]"
+          >
+            <option value="">All statuses</option>
+            <option value="IN_STOCK">In Stock</option>
+            <option value="SOLD">Sold</option>
+            <option value="INACTIVE">Inactive</option>
+          </Select>
+          <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="h-10 w-full sm:w-[170px]">
+            <option value="">All vendors</option>
+            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </Select>
+          <Button variant="outline" className="h-10" onClick={loadItems}>Search</Button>
         </div>
-        <Select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StockStatus | '')}
-          className="max-w-[180px]"
-        >
-          <option value="">All statuses</option>
-          <option value="IN_STOCK">In Stock</option>
-          <option value="SOLD">Sold</option>
-          <option value="INACTIVE">Inactive</option>
-        </Select>
-        <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="max-w-[180px]">
-          <option value="">All vendors</option>
-          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </Select>
-        <Button variant="outline" onClick={loadItems}>Search</Button>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center">
+          <Select className="h-10 w-full sm:w-[170px]" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
+            <option value="">All Categories</option>
+            {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Select className="h-10 w-full sm:w-[170px]" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
+            <option value="">All Sub-categories</option>
+            {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Select className="h-10 w-full sm:w-[130px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
+            <option value="">All Purity</option>
+            {purityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Button variant="ghost" className="h-10 text-slate-500" onClick={clearAllFilters} disabled={!filtersActive}>Clear</Button>
+          <span className="text-[11px] font-medium text-slate-400 sm:ml-auto">
+            Showing {items.length}{total > items.length ? ` of ${total}` : ''} matching
+          </span>
+        </div>
       </div>
 
       {loading && (
@@ -344,13 +420,23 @@ export default function InventoryPage() {
 
       {!loading && !loadError && items.length === 0 && (
         <Card>
-          <EmptyState
-            icon={<PackageX className="h-7 w-7 text-gold" />}
-            title="No inventory items yet"
-            description="Add a finished jewellery item bought from a vendor to give it a Product Code you can sell against."
-            actionLabel="Add Item"
-            onAction={openCreateModal}
-          />
+          {filtersActive ? (
+            <EmptyState
+              icon={<PackageX className="h-7 w-7 text-slate-400" />}
+              title="No matching items"
+              description="No inventory matches the current search or filters."
+              actionLabel="Clear filters"
+              onAction={clearAllFilters}
+            />
+          ) : (
+            <EmptyState
+              icon={<PackageX className="h-7 w-7 text-gold" />}
+              title="No inventory items yet"
+              description="Add a finished jewellery item bought from a vendor to give it a Product Code you can sell against."
+              actionLabel="Add Item"
+              onAction={openCreateModal}
+            />
+          )}
         </Card>
       )}
 
@@ -405,7 +491,7 @@ export default function InventoryPage() {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
-            {total} item{total === 1 ? '' : 's'}
+            {items.length} shown{total > items.length ? ` of ${total} matching` : ''}
           </div>
         </Card>
       )}
@@ -508,8 +594,9 @@ export default function InventoryPage() {
               <Input type="number" step="0.01" min="0" value={form.purchaseRatePerGram ?? ''} disabled={isSold}
                 onChange={(e) => setForm({ ...form, purchaseRatePerGram: e.target.value ? parseFloat(e.target.value) : undefined })} />
             </Field>
-            <Field label="Purchase Value / Cost (₹)">
-              <Input type="number" step="0.01" min="0" value={form.purchaseCost ?? ''} disabled={isSold}
+            <Field label="Purchase Value / Cost (₹) *">
+              <Input type="number" step="0.01" min="0" placeholder="Required — vendor cost"
+                value={form.purchaseCost ?? ''} disabled={isSold}
                 onChange={(e) => setForm({ ...form, purchaseCost: e.target.value ? parseFloat(e.target.value) : undefined })} />
             </Field>
 

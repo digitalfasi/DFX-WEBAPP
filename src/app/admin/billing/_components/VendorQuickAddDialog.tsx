@@ -4,34 +4,20 @@ import React, { useEffect, useState } from 'react';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/form-controls';
-import { Collapsible } from '@/components/ui/collapsible';
-import { SlidersHorizontal } from 'lucide-react';
-import {
-  billingService, Vendor, ChargeType, CHARGE_TYPE_OPTIONS, PRICING_MODE_OPTIONS,
-} from '@/services/billingService';
+import { billingService, Vendor } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 
 interface FormState {
   name: string;
   phone: string;
   gst: string;
-  makingChargeType: ChargeType;
-  makingChargeValue: string;
-  wastageType: ChargeType;
-  wastageValue: string;
-  goldProfitPercent: string;
-  taxRatePercent: string;
-  defaultPricingMode: string;
 }
 
-const emptyForm: FormState = {
-  name: '', phone: '', gst: '',
-  makingChargeType: 'PERCENTAGE', makingChargeValue: '',
-  wastageType: 'PERCENTAGE', wastageValue: '',
-  goldProfitPercent: '', taxRatePercent: '', defaultPricingMode: '',
-};
+const emptyForm: FormState = { name: '', phone: '', gst: '' };
 
+// Vendor pricing defaults are retired — Store Defaults are the only pricing
+// source — so this dialog captures only the vendor's business/contact details
+// needed for inventory procurement.
 export function VendorQuickAddDialog({
   isOpen,
   onClose,
@@ -41,7 +27,7 @@ export function VendorQuickAddDialog({
   isOpen: boolean;
   onClose: () => void;
   onCreated: (vendor: Vendor) => void;
-  /** When provided, the dialog edits this vendor (including its defaults) instead of creating a new one. */
+  /** When provided, the dialog edits this vendor's business details. */
   vendor?: Vendor | null;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -51,18 +37,7 @@ export function VendorQuickAddDialog({
   useEffect(() => {
     if (!isOpen) return;
     if (vendor) {
-      setForm({
-        name: vendor.name,
-        phone: vendor.phone || '',
-        gst: vendor.gstNumber || '',
-        makingChargeType: vendor.makingChargeType || 'PERCENTAGE',
-        makingChargeValue: vendor.makingChargeValue?.toString() ?? '',
-        wastageType: vendor.wastageType || 'PERCENTAGE',
-        wastageValue: vendor.wastageValue?.toString() ?? '',
-        goldProfitPercent: vendor.goldProfitPercent?.toString() ?? '',
-        taxRatePercent: vendor.taxRatePercent?.toString() ?? '',
-        defaultPricingMode: vendor.defaultPricingMode || '',
-      });
+      setForm({ name: vendor.name, phone: vendor.phone || '', gst: vendor.gstNumber || '' });
     } else {
       setForm(emptyForm);
     }
@@ -76,18 +51,9 @@ export function VendorQuickAddDialog({
     }
     setSaving(true);
     setError('');
-    const payload = {
-      name: form.name,
-      phone: form.phone,
-      gstNumber: form.gst,
-      makingChargeType: form.makingChargeValue ? form.makingChargeType : undefined,
-      makingChargeValue: form.makingChargeValue ? parseFloat(form.makingChargeValue) : undefined,
-      wastageType: form.wastageValue ? form.wastageType : undefined,
-      wastageValue: form.wastageValue ? parseFloat(form.wastageValue) : undefined,
-      goldProfitPercent: form.goldProfitPercent ? parseFloat(form.goldProfitPercent) : undefined,
-      taxRatePercent: form.taxRatePercent ? parseFloat(form.taxRatePercent) : undefined,
-      defaultPricingMode: (form.defaultPricingMode || undefined) as any,
-    };
+    // Only business fields are sent — no pricing-default fields. The backend
+    // keeps its (now unused) default columns nullable, so omitting them is safe.
+    const payload = { name: form.name, phone: form.phone, gstNumber: form.gst };
     try {
       const saved = vendor
         ? await billingService.updateVendor(vendor.id, payload)
@@ -121,56 +87,11 @@ export function VendorQuickAddDialog({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">GST Number</label>
           <Input value={form.gst} onChange={(e) => setForm({ ...form, gst: e.target.value })} />
         </div>
-
-        <Collapsible title="Pricing Defaults (optional)" icon={SlidersHorizontal}>
-          <p className="text-[11px] text-slate-500 -mt-1 mb-2">
-            Pre-fills new inventory from this vendor. Leave blank to fall back to Category/Store defaults.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <MiniField label="Making Type">
-              <Select value={form.makingChargeType} onChange={(e) => setForm({ ...form, makingChargeType: e.target.value as ChargeType })}>
-                {CHARGE_TYPE_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </Select>
-            </MiniField>
-            <MiniField label="Making Value">
-              <Input type="number" step="0.01" value={form.makingChargeValue} onChange={(e) => setForm({ ...form, makingChargeValue: e.target.value })} />
-            </MiniField>
-            <MiniField label="Wastage Type">
-              <Select value={form.wastageType} onChange={(e) => setForm({ ...form, wastageType: e.target.value as ChargeType })}>
-                {CHARGE_TYPE_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </Select>
-            </MiniField>
-            <MiniField label="Wastage Value">
-              <Input type="number" step="0.01" value={form.wastageValue} onChange={(e) => setForm({ ...form, wastageValue: e.target.value })} />
-            </MiniField>
-            <MiniField label="Gold Profit %">
-              <Input type="number" step="0.01" value={form.goldProfitPercent} onChange={(e) => setForm({ ...form, goldProfitPercent: e.target.value })} />
-            </MiniField>
-            <MiniField label="GST %">
-              <Input type="number" step="0.01" value={form.taxRatePercent} onChange={(e) => setForm({ ...form, taxRatePercent: e.target.value })} />
-            </MiniField>
-            <MiniField label="Pricing Mode">
-              <Select value={form.defaultPricingMode} onChange={(e) => setForm({ ...form, defaultPricingMode: e.target.value })}>
-                <option value="">Not set</option>
-                {PRICING_MODE_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.value}</option>)}
-              </Select>
-            </MiniField>
-          </div>
-        </Collapsible>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button onClick={handleSave} isLoading={saving}>{vendor ? 'Save Changes' : 'Add Vendor'}</Button>
       </DialogFooter>
     </Dialog>
-  );
-}
-
-function MiniField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-0.5">
-      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">{label}</label>
-      {children}
-    </div>
   );
 }

@@ -33,10 +33,11 @@ export interface SalesExportField {
 export type ReturnType = 'RETURN' | 'CANCELLATION';
 export type InspectionOutcome = 'RESALABLE' | 'DAMAGED';
 
+// HYBRID is retired as a pricing mode; the type keeps it only so responses
+// carrying a legacy value still parse. New writes use AUTO or MANUAL only.
 export type PricingMode = 'AUTO' | 'HYBRID' | 'MANUAL';
-export const PRICING_MODE_OPTIONS: { value: PricingMode; label: string }[] = [
+export const PRICING_MODE_OPTIONS: { value: 'AUTO' | 'MANUAL'; label: string }[] = [
   { value: 'AUTO', label: 'Auto — system calculates' },
-  { value: 'HYBRID', label: 'Hybrid — suggested, editable' },
   { value: 'MANUAL', label: 'Manual — you set the price' },
 ];
 export type DefaultSource = 'VENDOR' | 'CATEGORY' | 'STORE' | 'NONE';
@@ -288,6 +289,9 @@ export interface InventoryItemFormData {
   purchaseDate?: string;
   purchaseInvoiceRef?: string;
   purchaseRatePerGram?: number;
+  // Vendor acquisition cost. Backend REQUIRES it for new items and the
+  // inventory form validates it > 0 before submit; the field itself stays
+  // optional here only so the form can hold an empty value while being typed.
   purchaseCost?: number;
   makingChargeType: ChargeType;
   makingChargeValue: number;
@@ -448,6 +452,29 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
   };
 }
 
+/** One suggested charge trim to reach a lower requested price. */
+export interface SafePriceReduction {
+  component: string; // MAKING | WASTAGE | GOLD_PROFIT
+  chargeType: string | null;
+  reduceAmount: number;
+  fromValue: number | null;
+  toValue: number | null;
+}
+
+/** Backend-authoritative safe-price/discount guidance. Never recomputed in
+ *  React. status PURCHASE_COST_REQUIRED means the item has no vendor cost and
+ *  cannot be safely sold until one is entered. */
+export interface SafePriceGuidance {
+  status: 'SAFE' | 'ADJUSTABLE' | 'NOT_ACHIEVABLE' | 'PURCHASE_COST_REQUIRED';
+  isLoss: boolean;
+  requestedPrice: number | null;
+  minimumSafePrice: number | null; // Admin-only
+  achievablePrice: number | null;
+  residualDiscount: number | null;
+  reductions: SafePriceReduction[];
+  message: string;
+}
+
 export interface SaleQuote {
   inventoryItem: InventoryItem;
   breakdown: PriceBreakdown;
@@ -458,6 +485,8 @@ export interface SaleQuote {
   historicalProfitMarginPercent: number | null;
   currentGoldValueProfitOrLoss: number | null;
   currentGoldValueMarginPercent: number | null;
+  // Backend safe-price/discount guidance; null when the backend supplies none.
+  safePrice: SafePriceGuidance | null;
 }
 
 export interface SaleCreateData {
@@ -842,7 +871,8 @@ export interface BulkPurchaseLineItem {
   grossWeightGrams: number;
   netGoldWeightGrams: number;
   purchaseRatePerGram?: number;
-  purchaseCost?: number;
+  // Required per line — backend rejects a bulk line without a vendor cost.
+  purchaseCost: number;
   makingChargeType: ChargeType;
   makingChargeValue: number;
   wastageType: ChargeType;
@@ -1518,6 +1548,8 @@ export const billingService = {
     stockStatus?: StockStatus;
     category?: string;
     vendorId?: string;
+    subcategory?: string;
+    purity?: string;
   } = {}): Promise<{ items: InventoryItem[]; total: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -1526,6 +1558,8 @@ export const billingService = {
     if (params.stockStatus) query.set('stock_status', params.stockStatus);
     if (params.category) query.set('category', params.category);
     if (params.vendorId) query.set('vendor_id', params.vendorId);
+    if (params.subcategory) query.set('subcategory', params.subcategory);
+    if (params.purity) query.set('purity', params.purity);
 
     const res = await apiClient.get<{ items: BackendInventoryItem[]; total: number }>(
       `/billing/inventory?${query.toString()}`,
@@ -1599,11 +1633,22 @@ export const billingService = {
       historical_profit_margin_percent?: number | null;
       current_gold_value_profit_or_loss?: number | null;
       current_gold_value_margin_percent?: number | null;
+      safe_price?: {
+        status: SafePriceGuidance['status'];
+        is_loss?: boolean;
+        requested_price?: number | null;
+        minimum_safe_price?: number | null;
+        achievable_price?: number | null;
+        residual_discount?: number | null;
+        reductions?: { component: string; charge_type?: string | null; reduce_amount: number; from_value?: number | null; to_value?: number | null }[];
+        message?: string;
+      } | null;
     }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
       { auth: true, signal }
     );
     const d = res.data;
+    const sp = d.safe_price;
     return {
       inventoryItem: mapInventoryItem(d.inventory_item),
       breakdown: mapBreakdown(d.breakdown),
@@ -1612,6 +1657,24 @@ export const billingService = {
       historicalProfitMarginPercent: d.historical_profit_margin_percent ?? null,
       currentGoldValueProfitOrLoss: d.current_gold_value_profit_or_loss ?? null,
       currentGoldValueMarginPercent: d.current_gold_value_margin_percent ?? null,
+      safePrice: sp
+        ? {
+            status: sp.status,
+            isLoss: sp.is_loss ?? false,
+            requestedPrice: sp.requested_price ?? null,
+            minimumSafePrice: sp.minimum_safe_price ?? null,
+            achievablePrice: sp.achievable_price ?? null,
+            residualDiscount: sp.residual_discount ?? null,
+            reductions: (sp.reductions ?? []).map((r) => ({
+              component: r.component,
+              chargeType: r.charge_type ?? null,
+              reduceAmount: r.reduce_amount,
+              fromValue: r.from_value ?? null,
+              toValue: r.to_value ?? null,
+            })),
+            message: sp.message ?? '',
+          }
+        : null,
     };
   },
 

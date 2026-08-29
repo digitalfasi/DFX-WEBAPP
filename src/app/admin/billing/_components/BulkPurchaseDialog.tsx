@@ -225,6 +225,11 @@ export function BulkPurchaseDialog({
         setError('Every row needs a Product Code, Name, Gross/Net Weight and GST %.');
         return;
       }
+      // Vendor cost is compulsory per line — same rule as single-item create.
+      if (!r.purchaseCost || parseFloat(r.purchaseCost) <= 0) {
+        setError(`${r.productCode || 'A row'}: Purchase Cost (vendor cost) is required and must be greater than 0.`);
+        return;
+      }
       const gross = parseFloat(r.grossWeightGrams);
       const net = parseFloat(r.netGoldWeightGrams);
       if (net > gross) {
@@ -235,7 +240,7 @@ export function BulkPurchaseDialog({
         productCode: r.productCode, productName: r.productName, category: r.category || undefined,
         huid: r.huid || undefined, purity: r.purity, grossWeightGrams: gross, netGoldWeightGrams: net,
         purchaseRatePerGram: r.purchaseRatePerGram ? parseFloat(r.purchaseRatePerGram) : undefined,
-        purchaseCost: r.purchaseCost ? parseFloat(r.purchaseCost) : undefined,
+        purchaseCost: parseFloat(r.purchaseCost),
         makingChargeType: r.makingChargeType, makingChargeValue: parseFloat(r.makingChargeValue) || 0,
         wastageType: r.wastageType, wastageValue: parseFloat(r.wastageValue) || 0,
         goldProfitPercent: parseFloat(r.goldProfitPercent) || 0,
@@ -308,7 +313,7 @@ export function BulkPurchaseDialog({
             <table className="w-full text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                 <tr>
-                  {['', 'Code', 'Name', 'Category', 'Purity', 'Gross g', 'Net g', 'Cost ₹', 'Mode', 'Price/Profit', ''].map((h) => (
+                  {['', 'Code', 'Name', 'Category', 'Purity', 'Gross g', 'Net g', 'Cost ₹ *', 'Mode', 'Price/Profit', ''].map((h) => (
                     <th key={h} className="px-2 py-2 text-[9px] font-bold uppercase tracking-wider text-slate-500 text-left whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
