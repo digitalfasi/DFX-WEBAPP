@@ -19,10 +19,11 @@ import {
   Lightbulb,
   Target,
   ClipboardList,
+  Cake,
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -42,10 +43,11 @@ import {
   EnrollmentSummary,
   TopCustomersReport,
   SchemeSummaryReport,
-  TopProductMetric,
   TopProductsResult,
   AiAnalysis,
   AiPriority,
+  BirthdaySummary,
+  BirthdayCustomer,
 } from '@/services/reportService';
 import { billingService } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
@@ -298,6 +300,109 @@ const chartTooltipStyle = {
 };
 
 /* ================================================================== */
+/* Birthday intelligence — real DOB data, business-opportunity framing */
+/* ================================================================== */
+
+function BirthdayRow({ c, domain, today }: { c: BirthdayCustomer; domain: 'BUSINESS' | 'SCHEME'; today?: boolean }) {
+  const valueLabel = domain === 'BUSINESS' ? 'business spend' : 'invested';
+  return (
+    <div
+      className={`flex items-center justify-between rounded-xl border p-3 ${
+        c.isPriority ? 'border-gold/40 bg-gold/[0.07]' : today ? 'border-[#2C6FBD]/25 bg-[#2C6FBD]/[0.04]' : 'border-slate-200 bg-white'
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-bold text-[#0B0E23] truncate">{c.customerName ?? 'Customer'}</span>
+          {c.isPriority && <Badge variant="gold" className="text-[9px] shrink-0">PRIORITY</Badge>}
+        </div>
+        <div className="text-[10px] font-medium text-slate-500 mt-0.5">
+          {c.customerCode && <span className="font-mono text-slate-400">{c.customerCode} · </span>}
+          {c.isPriority && c.value != null
+            ? `${domain === 'BUSINESS' ? 'Priority Business' : 'Priority Scheme'} Customer · ${formatCurrency(c.value)} ${valueLabel}`
+            : `Birthday Opportunity · ${valueLabel} —`}
+        </div>
+      </div>
+      <div className="text-right shrink-0 ml-3">
+        <div className="text-xs font-mono font-bold text-slate-600">{c.birthday}</div>
+        <div className="text-[10px] font-bold text-slate-400">
+          {today ? 'Today' : c.daysUntil === 1 ? 'in 1 day' : `in ${c.daysUntil} days`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BirthdayPanel({ data }: { data: BirthdaySummary | null }) {
+  if (!data) return null;
+  const hasAny = data.totalWithDob > 0 && (data.todayCount > 0 || data.upcomingCount > 0);
+  const all = [...data.today, ...data.upcoming];
+  const priority = all.filter((c) => c.isPriority);
+  const normal = all.filter((c) => !c.isPriority);
+  const domainWord = data.domain === 'BUSINESS' ? 'business' : 'scheme';
+  return (
+    <Panel
+      title="Birthday Opportunities"
+      subtitle={`Customer birthdays in the next ${data.windowDays} days — priority uses ${domainWord} customer value`}
+      badge={
+        <div className="flex items-center gap-2">
+          <Badge variant="gold">{data.todayCount} today</Badge>
+          <Badge variant="neutral">{data.upcomingCount} upcoming</Badge>
+          {data.priorityCount > 0 && <Badge variant="success">{data.priorityCount} priority</Badge>}
+        </div>
+      }
+      empty={!hasAny}
+      emptyMsg={
+        data.totalWithDob === 0
+          ? 'No customer birth dates on record yet.'
+          : `No customer birthdays in the next ${data.windowDays} days.`
+      }
+    >
+      <div className="space-y-4">
+        {priority.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Cake className="w-4 h-4 text-gold-dark" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Priority / Complimentary Opportunities
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {priority.map((c) => (
+                <BirthdayRow key={c.customerId} c={c} domain={data.domain} today={c.daysUntil === 0} />
+              ))}
+            </div>
+            <p className="text-[10px] font-medium text-slate-500 mt-2">
+              Action: send birthday wishes and consider a complimentary gesture.
+            </p>
+          </div>
+        )}
+        {normal.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Cake className="w-4 h-4 text-[#2C6FBD]" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Birthday Opportunities
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {normal.slice(0, 12).map((c) => (
+                <BirthdayRow key={c.customerId} c={c} domain={data.domain} today={c.daysUntil === 0} />
+              ))}
+            </div>
+            {normal.length > 12 && (
+              <p className="text-[10px] font-medium text-slate-400 mt-2">
+                +{normal.length - 12} more within {data.windowDays} days.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+/* ================================================================== */
 /* AI Analyst panel — explicit "Analyze with AI", never auto-runs      */
 /* ================================================================== */
 
@@ -373,25 +478,19 @@ function AiAnalystPanel({
 
   return (
     <Card className="bg-white border-slate-200 shadow-xs overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 border-b border-slate-100 bg-gradient-to-r from-[#2C6FBD]/[0.06] to-transparent">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-[#2C6FBD] text-white shadow-sm">
-            <Sparkles className="w-4 h-4" />
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 rounded-lg bg-[#2C6FBD] text-white">
+            <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="text-base font-bold text-[#0B0E23]">{title}</div>
-            <p className="text-xs text-slate-500 font-medium">
-              Automatic insights from your real report figures for this period.
-            </p>
-          </div>
+          <span className="text-sm font-bold text-[#0B0E23]">{title}</span>
         </div>
-        <Button onClick={run} size="sm" isLoading={loading} className="bg-[#2C6FBD] hover:bg-[#255ea3] text-white font-bold h-9 shrink-0">
-          <Sparkles className="w-4 h-4 mr-1.5" />
-          {data || error ? 'Refresh' : 'Generate Insights'}
+        <Button onClick={run} size="sm" isLoading={loading} className="bg-[#2C6FBD] hover:bg-[#255ea3] text-white font-bold h-8 shrink-0">
+          {data || error ? 'Refresh' : 'Generate'}
         </Button>
       </div>
 
-      <div className="p-5">
+      <div className="p-4">
         {loading && (
           <div className="space-y-3">
             <p className="text-xs font-medium text-slate-400">Analyzing your {domain === 'BUSINESS' ? 'business' : 'scheme'} data…</p>
@@ -427,51 +526,55 @@ function AiAnalystPanel({
           </div>
         )}
 
-        {!loading && !error && data && data.available && (
-          <div className="space-y-5">
-            {data.executiveSummary && (
-              <div className="rounded-xl border border-[#2C6FBD]/20 bg-[#2C6FBD]/[0.04] p-4">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-[#2C6FBD] mb-1">Executive Summary</div>
-                <p className="text-sm text-[#0B0E23] font-medium leading-relaxed">{data.executiveSummary}</p>
-              </div>
-            )}
+        {!loading && !error && data && data.available && (() => {
+          // One compact card per insight: Key Signal (what happened), Why It
+          // Matters, Recommended Action — all strings straight from the
+          // deterministic engine, paired by position. Nothing invented.
+          const why = [...data.opportunities, ...data.risks];
+          const count = Math.max(data.keyFindings.length, why.length, actions.length);
+          const cards = Array.from({ length: count }, (_, i) => ({
+            signal: data.keyFindings[i], why: why[i], action: actions[i],
+          })).filter((c) => c.signal || c.why || c.action);
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <AiList title="Key Findings" icon={ClipboardList} items={data.keyFindings} tone="text-[#2C6FBD]" />
-              <AiList title="Opportunities" icon={Lightbulb} items={data.opportunities} tone="text-emerald-600" />
-              <AiList title="Risks" icon={AlertTriangle} items={data.risks} tone="text-red-600" />
-            </div>
-
-            {actions.length > 0 && (
-              <div>
-                <div className="flex items-center gap-1.5 mb-2.5">
-                  <Target className="w-4 h-4 text-[#0B0E23]" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Recommended Actions</span>
-                </div>
-                <div className="space-y-2.5">
-                  {actions.map((a, i) => {
-                    const st = PRIORITY_STYLE[a.priority];
-                    return (
-                      <div key={i} className={`rounded-xl border p-3.5 ${st.box}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md tracking-wider ${st.badge}`}>{st.label}</span>
-                          {a.metric && <span className="text-[10px] font-mono font-bold text-slate-500">{a.metric}</span>}
-                        </div>
-                        <div className="text-sm font-bold text-[#0B0E23]">{a.title}</div>
-                        {a.explanation && <p className="text-xs text-slate-600 font-medium mt-0.5 leading-relaxed">{a.explanation}</p>}
+          return (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {cards.map((c, i) => (
+                  <div key={i} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                    {c.signal && (
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-[#2C6FBD]">Key Signal</p>
+                        <p className="text-xs font-bold text-[#0B0E23] leading-snug">{c.signal}</p>
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+                    {c.why && (
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Why It Matters</p>
+                        <p className="text-xs text-slate-600 font-medium leading-snug">{c.why}</p>
+                      </div>
+                    )}
+                    {c.action && (
+                      <div className="pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recommended Action</p>
+                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${PRIORITY_STYLE[c.action.priority].badge}`}>
+                            {c.action.priority}
+                          </span>
+                        </div>
+                        <p className="text-xs font-semibold text-[#0B0E23] leading-snug">{c.action.title}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            )}
 
-            <div className="flex items-center justify-between pt-1 text-[10px] font-medium text-slate-400 border-t border-slate-100">
-              <span>{data.model ? `Analyzed by ${data.model}` : 'AI analysis'}</span>
-              <span>{data.range.label}</span>
+              <div className="flex items-center justify-between pt-1 text-[10px] font-medium text-slate-400 border-t border-slate-100">
+                <span>{data.model ? `Analyzed by ${data.model}` : 'AI analysis'}</span>
+                <span>{data.range.label}</span>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </Card>
   );
@@ -481,25 +584,39 @@ function AiAnalystPanel({
 /* BUSINESS ANALYTICS                                                  */
 /* ================================================================== */
 
-const TP_METRICS: { key: TopProductMetric; label: string }[] = [
-  { key: 'quantity', label: 'Units Sold' },
-  { key: 'weight', label: 'Gold Weight' },
-  { key: 'revenue', label: 'Revenue' },
-];
+/** Workspace header for a Report/Analytics section — icon + title + a
+ *  view-specific accent bar. Pure visual differentiation (no explanatory
+ *  copy): Report reads dark/structured, Analytics reads blue/analytical. */
+function ViewBand({ label, view }: { label: string; view: ReportView }) {
+  const Icon = VIEW_META[view].icon;
+  const accent = view === 'report' ? 'border-[#0B0E23]' : 'border-[#2C6FBD]';
+  const tint = view === 'report' ? 'bg-slate-100 text-[#0B0E23]' : 'bg-blue-50 text-[#2C6FBD]';
+  return (
+    <div className={`flex items-center gap-2.5 pl-3 border-l-4 ${accent}`}>
+      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${tint}`}>
+        <Icon className="w-4 h-4" />
+      </span>
+      <span className="font-display font-extrabold text-sm text-[#0B0E23]">{label}</span>
+    </div>
+  );
+}
 
 function BusinessAnalytics({
   rangeParams,
   explicitRange,
   periodLabel,
+  view,
 }: {
   rangeParams: ReportRangeParams;
   explicitRange: { dateFrom: string; dateTo: string } | null;
   periodLabel: string;
+  view: ReportView;
 }) {
   const [salesTrend, setSalesTrend] = useState<SalesTrend | null>(null);
   const [category, setCategory] = useState<SalesByCategory | null>(null);
   const [topCust, setTopCust] = useState<TopCustomersBySalesReport | null>(null);
   const [insights, setInsights] = useState<InsightsResult | null>(null);
+  const [birthdays, setBirthdays] = useState<BirthdaySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -509,16 +626,19 @@ function BusinessAnalytics({
     setLoading(true);
     setError('');
     try {
-      const [st, cat, tc, ins] = await Promise.all([
+      const [st, cat, tc, ins, bd] = await Promise.all([
         reportService.getSalesTrend(rangeParams),
         reportService.getSalesByCategory(rangeParams),
         reportService.getTopCustomersBusiness({ ...rangeParams, limit: 10 }),
         reportService.getBusinessInsights(rangeParams),
+        // Birthdays are next-30-days from today; priority uses business spend over the period.
+        reportService.getBirthdays('BUSINESS', 30, rangeParams),
       ]);
       setSalesTrend(st);
       setCategory(cat);
       setTopCust(tc);
       setInsights(ins);
+      setBirthdays(bd);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load business analytics.');
     } finally {
@@ -557,6 +677,10 @@ function BusinessAnalytics({
 
   return (
     <div className="space-y-6">
+      {view === 'report' && (
+      <>
+      {/* REPORT — factual figures for the period */}
+      <ViewBand label="Business Report" view="report" />
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Sales Revenue" value={formatCurrency(totals.revenue)} icon={TrendingUp} color="text-amber-600 bg-amber-50" />
@@ -580,13 +704,19 @@ function BusinessAnalytics({
       >
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={trendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={trendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="dfxRevenueFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#C6A24C" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#C6A24C" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} tickFormatter={(v) => `₹${(v / 100000).toFixed(1)}L`} />
               <Tooltip formatter={(val: number) => [formatCurrency(val), 'Revenue']} contentStyle={chartTooltipStyle} />
-              <Bar dataKey="revenue" fill="#0B0E23" radius={[6, 6, 0, 0]} name="Revenue" />
-            </BarChart>
+              <Area type="monotone" dataKey="revenue" stroke="#C6A24C" strokeWidth={2.5} fill="url(#dfxRevenueFill)" name="Revenue" dot={false} activeDot={{ r: 4, fill: '#0B0E23' }} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </Panel>
@@ -648,9 +778,18 @@ function BusinessAnalytics({
         </div>
       </Panel>
 
-      <AiAnalystPanel domain="BUSINESS" rangeParams={rangeParams} title="AI Business Analyst" />
+      </>
+      )}
 
-      <InsightsPanel title="Business Insights" data={insights} onRetry={load} />
+      {view === 'analytics' && (
+      <>
+      {/* ANALYTICS — interpretation, opportunities, deterministic insights */}
+      <ViewBand label="Business Analytics" view="analytics" />
+      <BirthdayPanel data={birthdays} />
+
+      <AiAnalystPanel domain="BUSINESS" rangeParams={rangeParams} title="AI Business Analyst" />
+      </>
+      )}
     </div>
   );
 }
@@ -662,19 +801,20 @@ function TopProductsCard({
   explicitRange: { dateFrom: string; dateTo: string } | null;
   periodLabel: string;
 }) {
-  const [metric, setMetric] = useState<TopProductMetric>('revenue');
   const [result, setResult] = useState<TopProductsResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
-  const key = explicitRange ? `${explicitRange.dateFrom}|${explicitRange.dateTo}|${metric}` : `none|${metric}`;
+  const key = explicitRange ? `${explicitRange.dateFrom}|${explicitRange.dateTo}` : 'none';
 
   const load = async () => {
     if (!explicitRange) return;
     setLoading(true);
     setErr('');
     try {
-      setResult(await reportService.getTopProducts({ ...explicitRange, metric, limit: 10 }));
+      // Sales-volume ranking only. 'quantity' = units sold. Tie-break by grams
+      // sold is applied client-side over the same backend aggregate.
+      setResult(await reportService.getTopProducts({ ...explicitRange, metric: 'quantity', limit: 10 }));
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Could not load top products.');
     } finally {
@@ -687,27 +827,16 @@ function TopProductsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  // Units Sold DESC, then Grams Sold DESC. No revenue/profit/margin ranking.
+  const ranked = [...(result?.items ?? [])].sort(
+    (a, b) => b.units - a.units || b.gold_weight_grams - a.gold_weight_grams,
+  );
+
   return (
     <Panel
       title="Top Selling Products"
-      subtitle="Ranked by the selected metric over completed sales"
+      subtitle="Ranked by units sold (grams sold breaks ties)"
       badge={<Badge variant="gold">{periodLabel}</Badge>}
-      action={
-        <div className="flex flex-wrap gap-1.5">
-          {TP_METRICS.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMetric(m.key)}
-              className={
-                'px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ' +
-                (metric === m.key ? 'bg-[#0B0E23] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')
-              }
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      }
       loading={loading}
       error={err}
       empty={!!result && result.items.length === 0}
@@ -719,25 +848,19 @@ function TopProductsCard({
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
               <th className="p-3">Product</th>
-              <th className="p-3 text-right">Units</th>
-              <th className="p-3 text-right">Revenue</th>
-              <th className="p-3 text-right">Gold Wt</th>
-              {result?.profit_visible && <th className="p-3 text-right">Profit</th>}
+              <th className="p-3 text-right">Units Sold</th>
+              <th className="p-3 text-right">Grams Sold</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-            {(result?.items ?? []).map((it) => (
+            {ranked.map((it) => (
               <tr key={it.product_code} className="hover:bg-slate-50/80">
                 <td className="p-3 font-bold text-[#0B0E23]">
                   {it.product_name}
                   <span className="block text-[10px] text-slate-400 font-mono">{it.product_code}</span>
                 </td>
                 <td className="p-3 text-right font-mono">{formatCount(it.units)}</td>
-                <td className="p-3 text-right font-mono">{formatCurrency(it.revenue)}</td>
                 <td className="p-3 text-right font-mono">{formatGrams(it.gold_weight_grams)}</td>
-                {result?.profit_visible && (
-                  <td className="p-3 text-right font-mono">{it.profit != null ? formatCurrency(it.profit) : '—'}</td>
-                )}
               </tr>
             ))}
           </tbody>
@@ -760,15 +883,18 @@ const ENROLLMENT_STATUS_BADGE: Record<string, 'success' | 'neutral' | 'danger'> 
 function SchemeAnalytics({
   rangeParams,
   periodLabel,
+  view,
 }: {
   rangeParams: ReportRangeParams;
   periodLabel: string;
+  view: ReportView;
 }) {
   const [payments, setPayments] = useState<PaymentSummary | null>(null);
   const [enrollments, setEnrollments] = useState<EnrollmentSummary | null>(null);
   const [topCust, setTopCust] = useState<TopCustomersReport | null>(null);
   const [schemeSummary, setSchemeSummary] = useState<SchemeSummaryReport | null>(null);
   const [insights, setInsights] = useState<InsightsResult | null>(null);
+  const [birthdays, setBirthdays] = useState<BirthdaySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -778,18 +904,20 @@ function SchemeAnalytics({
     setLoading(true);
     setError('');
     try {
-      const [pay, enr, tc, ss, ins] = await Promise.all([
+      const [pay, enr, tc, ss, ins, bd] = await Promise.all([
         reportService.getPaymentSummary(rangeParams),
         reportService.getEnrollmentSummary(rangeParams),
         reportService.getTopCustomers({ ...rangeParams, limit: 10 }),
         reportService.getSchemeSummary(rangeParams),
         reportService.getSchemeInsights(rangeParams),
+        reportService.getBirthdays('SCHEME', 30, rangeParams),
       ]);
       setPayments(pay);
       setEnrollments(enr);
       setTopCust(tc);
       setSchemeSummary(ss);
       setInsights(ins);
+      setBirthdays(bd);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not load scheme analytics.');
     } finally {
@@ -818,6 +946,10 @@ function SchemeAnalytics({
 
   return (
     <div className="space-y-6">
+      {view === 'report' && (
+      <>
+      {/* REPORT — factual scheme figures for the period */}
+      <ViewBand label="Scheme Report" view="report" />
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
@@ -849,13 +981,19 @@ function SchemeAnalytics({
       >
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={collectionsData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={collectionsData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="dfxCollectionsFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#C6A24C" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#C6A24C" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} tickFormatter={(v) => `₹${(v / 100000).toFixed(1)}L`} />
               <Tooltip formatter={(val: number) => [formatCurrency(val), 'Collections']} contentStyle={chartTooltipStyle} />
-              <Bar dataKey="amount" fill="#0B0E23" radius={[6, 6, 0, 0]} name="Collections" />
-            </BarChart>
+              <Area type="monotone" dataKey="amount" stroke="#C6A24C" strokeWidth={2.5} fill="url(#dfxCollectionsFill)" name="Collections" dot={false} activeDot={{ r: 4, fill: '#0B0E23' }} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </Panel>
@@ -887,13 +1025,19 @@ function SchemeAnalytics({
       >
         <div className="h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={enrollmentData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={enrollmentData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="dfxEnrollmentFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2C6FBD" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#2C6FBD" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} />
               <YAxis tickLine={false} axisLine={false} allowDecimals={false} tick={{ fontSize: 11, fill: '#64748B' }} />
               <Tooltip formatter={(val: number) => [String(val), 'New Enrollments']} contentStyle={chartTooltipStyle} />
-              <Bar dataKey="count" fill="#2C6FBD" radius={[6, 6, 0, 0]} name="New Enrollments" />
-            </BarChart>
+              <Area type="monotone" dataKey="count" stroke="#2C6FBD" strokeWidth={2.5} fill="url(#dfxEnrollmentFill)" name="New Enrollments" dot={false} activeDot={{ r: 4, fill: '#0B0E23' }} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </Panel>
@@ -974,9 +1118,18 @@ function SchemeAnalytics({
         </div>
       </Panel>
 
-      <AiAnalystPanel domain="SCHEME" rangeParams={rangeParams} title="AI Scheme Analyst" />
+      </>
+      )}
 
-      <InsightsPanel title="Scheme Insights" data={insights} onRetry={load} />
+      {view === 'analytics' && (
+      <>
+      {/* ANALYTICS — interpretation, opportunities, deterministic insights */}
+      <ViewBand label="Scheme Analytics" view="analytics" />
+      <BirthdayPanel data={birthdays} />
+
+      <AiAnalystPanel domain="SCHEME" rangeParams={rangeParams} title="AI Scheme Analyst" />
+      </>
+      )}
     </div>
   );
 }
@@ -1005,19 +1158,26 @@ function DomainSkeleton() {
 
 const DOMAIN_META: Record<Domain, { label: string; icon: React.ComponentType<{ className?: string }>; subtitle: string }> = {
   business: {
-    label: 'Business Analytics',
+    label: 'Business',
     icon: ShoppingBag,
     subtitle: 'Sales, profit, gold sold, top products and customers for the selected period.',
   },
   scheme: {
-    label: 'Scheme Analytics',
+    label: 'Scheme',
     icon: Layers,
     subtitle: 'Collections, enrollments, scheme performance and top scheme customers for the selected period.',
   },
 };
 
+type ReportView = 'report' | 'analytics';
+const VIEW_META: Record<ReportView, { label: string; icon: React.ComponentType<{ className?: string }>; active: string }> = {
+  report: { label: 'Report', icon: ClipboardList, active: 'bg-[#0B0E23] text-white shadow-sm' },
+  analytics: { label: 'Analytics', icon: Sparkles, active: 'bg-[#2C6FBD] text-white shadow-sm' },
+};
+
 export default function AdminReportsPage() {
   const [domain, setDomain] = useState<Domain>('business');
+  const [view, setView] = useState<ReportView>('report');
   const [period, setPeriod] = useState<PeriodKey>('this_year');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -1083,6 +1243,26 @@ export default function AdminReportsPage() {
             );
           })}
         </div>
+
+        {/* REPORT vs ANALYTICS segmented control — distinct icon + active
+            colour per view so the active workspace is obvious at a glance. */}
+        <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 w-full sm:w-auto">
+          {(Object.keys(VIEW_META) as ReportView[]).map((v) => {
+            const VIcon = VIEW_META[v].icon;
+            return (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                  view === v ? VIEW_META[v].active : 'text-slate-600 hover:text-[#0B0E23]'
+                }`}
+              >
+                <VIcon className="w-4 h-4" />
+                {VIEW_META[v].label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* PERIOD + EXPORT */}
@@ -1136,9 +1316,9 @@ export default function AdminReportsPage() {
       {/* ACTIVE DOMAIN */}
       {rangeParams &&
         (domain === 'business' ? (
-          <BusinessAnalytics rangeParams={rangeParams} explicitRange={explicitRange} periodLabel={periodLabel} />
+          <BusinessAnalytics rangeParams={rangeParams} explicitRange={explicitRange} periodLabel={periodLabel} view={view} />
         ) : (
-          <SchemeAnalytics rangeParams={rangeParams} periodLabel={periodLabel} />
+          <SchemeAnalytics rangeParams={rangeParams} periodLabel={periodLabel} view={view} />
         ))}
 
       {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}

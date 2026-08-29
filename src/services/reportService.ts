@@ -468,7 +468,83 @@ export interface AiAnalysis {
   note: string | null;
 }
 
+interface BackendBirthdayCustomer {
+  customer_id: string;
+  customer_name: string | null;
+  customer_code: string | null;
+  birthday: string;
+  days_until_birthday: number;
+  value: number | null;
+  is_priority: boolean;
+}
+interface BackendBirthdaySummary {
+  domain: 'BUSINESS' | 'SCHEME';
+  window_days: number;
+  total_with_dob: number;
+  today_count: number;
+  upcoming_count: number;
+  priority_count: number;
+  today: BackendBirthdayCustomer[];
+  upcoming: BackendBirthdayCustomer[];
+}
+
+export interface BirthdayCustomer {
+  customerId: string;
+  customerName: string | null;
+  customerCode: string | null;
+  birthday: string;
+  daysUntil: number;
+  value: number | null;
+  isPriority: boolean;
+}
+export interface BirthdaySummary {
+  domain: 'BUSINESS' | 'SCHEME';
+  windowDays: number;
+  totalWithDob: number;
+  todayCount: number;
+  upcomingCount: number;
+  priorityCount: number;
+  today: BirthdayCustomer[];
+  upcoming: BirthdayCustomer[];
+}
+
+function mapBirthdayCustomer(c: BackendBirthdayCustomer): BirthdayCustomer {
+  return {
+    customerId: c.customer_id,
+    customerName: c.customer_name,
+    customerCode: c.customer_code,
+    birthday: c.birthday,
+    daysUntil: c.days_until_birthday,
+    value: c.value,
+    isPriority: c.is_priority,
+  };
+}
+
 export const reportService = {
+  /** GET /api/v1/reports/birthdays (Admin/Staff-reports) — domain-aware DOB intelligence.
+   *  High-value flag uses the domain's existing top-customer ranking over `params`. */
+  async getBirthdays(
+    domain: 'BUSINESS' | 'SCHEME',
+    windowDays = 30,
+    params: ReportRangeParams = {},
+  ): Promise<BirthdaySummary> {
+    const res = await apiClient.get<{ summary: BackendBirthdaySummary }>(
+      `/reports/birthdays${buildQuery({ domain, window_days: windowDays, ...params })}`,
+      { auth: true },
+    );
+    const s = res.data.summary;
+    return {
+      domain: s.domain,
+      windowDays: s.window_days,
+      totalWithDob: s.total_with_dob,
+      todayCount: s.today_count,
+      upcomingCount: s.upcoming_count,
+      priorityCount: s.priority_count,
+      today: s.today.map(mapBirthdayCustomer),
+      upcoming: s.upcoming.map(mapBirthdayCustomer),
+    };
+  },
+
   /** GET /api/v1/reports/sales-trend (Admin) — Business sales time-series. */
   async getSalesTrend(params: ReportRangeParams = {}): Promise<SalesTrend> {
     const res = await apiClient.get<{ report: BackendSalesTrendResponse }>(
