@@ -12,7 +12,7 @@ import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Toast } from '@/components/ui/toast';
 import { formatCurrency } from '@/lib/formatters';
 import {
-  Users, CheckCircle2, AlertTriangle, Wallet, CircleDot,
+  Users, CheckCircle2, AlertTriangle, CircleDot,
   Search, RotateCcw, Eye, AlarmClock, Plus,
 } from 'lucide-react';
 import { enrollmentService, AdminEnrollment } from '@/services/enrollmentService';
@@ -253,11 +253,10 @@ export default function AdminCollectionsPage() {
       </div>
 
       {/* KPI CARDS */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard icon={<Users className="w-[18px] h-[18px] text-slate-600" />} tint="bg-slate-100" label="Total Enrollments" value={kpis.total.toLocaleString('en-IN')} loading={loading} />
         <KpiCard icon={<CheckCircle2 className="w-[18px] h-[18px] text-emerald-600" />} tint="bg-emerald-50" label="On Track" value={kpis.onTrack.toLocaleString('en-IN')} loading={loading} />
         <KpiCard icon={<AlertTriangle className="w-[18px] h-[18px] text-red-600" />} tint="bg-red-50" label="Overdue" value={kpis.overdue.toLocaleString('en-IN')} loading={loading} />
-        <KpiCard icon={<Wallet className="w-[18px] h-[18px] text-gold-dark" />} tint="bg-gold/10" label="Outstanding (Active)" value={formatCurrency(kpis.outstanding)} loading={loading} />
         <KpiCard icon={<CircleDot className="w-[18px] h-[18px] text-blue-600" />} tint="bg-blue-50" label={`Overall Collection (${periodLabel})`} value={overall === null ? '—' : formatCurrency(overall)} loading={overallLoading} />
       </div>
 
