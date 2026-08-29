@@ -65,9 +65,9 @@ export const ADMIN_NAV_ITEMS = [
   // Three flat entries sharing group: 'Billing' so AdminSidebar renders them
   // under one collapsible section; StaffAccessGuard's longest-path-prefix
   // match works unchanged since each has its own real, distinct route.
-  { key: 'billing-inventory', icon: 'Boxes', label: 'Inventory', path: '/admin/billing/inventory', ready: true, staffModule: 'billing', group: 'Billing' },
-  { key: 'billing-sell', icon: 'Calculator', label: 'New Sale', path: '/admin/billing/sell', ready: true, staffModule: 'billing', group: 'Billing' },
-  { key: 'billing-history', icon: 'Receipt', label: 'Sales History', path: '/admin/billing/history', ready: true, staffModule: 'billing', group: 'Billing' },
+  { key: 'billing-inventory', icon: 'Boxes', label: 'Inventory', path: '/admin/billing/inventory', ready: true, staffModule: 'billing_inventory', group: 'Billing' },
+  { key: 'billing-sell', icon: 'Calculator', label: 'New Sale', path: '/admin/billing/sell', ready: true, staffModule: 'billing_new_sale', group: 'Billing' },
+  { key: 'billing-history', icon: 'Receipt', label: 'Sales History', path: '/admin/billing/history', ready: true, staffModule: 'billing_sales_history', group: 'Billing' },
   { key: 'catalogue', icon: 'Tag', label: 'Catalogue Studio', path: '/admin/catalogue', ready: true, staffModule: 'catalogue', group: null },
   { key: 'marketing', icon: 'Megaphone', label: 'Marketing', path: '/admin/marketing', ready: true, staffModule: 'marketing', group: null },
   { key: 'reports', icon: 'TrendingUp', label: 'Reports & Analytics', path: '/admin/reports', ready: true, staffModule: 'reports', group: null },

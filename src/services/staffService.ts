@@ -44,10 +44,29 @@ export const STAFF_MODULES = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'branches', label: 'Branches' },
   { key: 'support', label: 'Support' },
-  { key: 'billing', label: 'Billing (Inventory & Selling)' },
+  // Billing is three INDEPENDENTLY grantable areas — grant any subset. The
+  // legacy 'billing' umbrella key is intentionally NOT offered here; existing
+  // grants still work (backend expands 'billing' to all three).
+  { key: 'billing_inventory', label: 'Inventory' },
+  { key: 'billing_new_sale', label: 'New Sale' },
+  { key: 'billing_sales_history', label: 'Sales History' },
 ] as const;
 
 export type StaffModuleKey = typeof STAFF_MODULES[number]['key'];
+
+const BILLING_GRANULAR = ['billing_inventory', 'billing_new_sale', 'billing_sales_history'];
+
+/**
+ * True if the permission set grants `moduleKey`. Mirrors the backend umbrella
+ * rule: a legacy 'billing' grant satisfies any of the three granular billing
+ * keys. Use everywhere nav/route access is gated so legacy Staff keep access.
+ */
+export function hasStaffModule(permissions: string[], moduleKey: string | null | undefined): boolean {
+  if (!moduleKey) return false;
+  if (permissions.includes(moduleKey)) return true;
+  if (permissions.includes('billing') && BILLING_GRANULAR.includes(moduleKey)) return true;
+  return false;
+}
 
 function mapStaff(raw: BackendStaff): Staff {
   return {

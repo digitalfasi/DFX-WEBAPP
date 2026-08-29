@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { ADMIN_NAV_ITEMS } from '@/constants';
+import { hasStaffModule } from '@/services/staffService';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -33,13 +34,13 @@ export const StaffAccessGuard: React.FC<{ children: React.ReactNode }> = ({ chil
   // can already otherwise see.
   const allowed =
     !matchedItem ||
-    (matchedItem.path === '/admin' ? user.permissions.length > 0 : matchedItem.staffModule && user.permissions.includes(matchedItem.staffModule));
+    (matchedItem.path === '/admin' ? user.permissions.length > 0 : hasStaffModule(user.permissions, matchedItem.staffModule));
 
   if (allowed) {
     return <>{children}</>;
   }
 
-  const firstPermitted = ADMIN_NAV_ITEMS.find((item) => item.staffModule && user.permissions.includes(item.staffModule));
+  const firstPermitted = ADMIN_NAV_ITEMS.find((item) => hasStaffModule(user.permissions, item.staffModule));
 
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">

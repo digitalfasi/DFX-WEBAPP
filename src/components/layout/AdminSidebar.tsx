@@ -7,6 +7,7 @@ import { ADMIN_NAV_ITEMS } from '@/constants';
 import { useTenant } from '@/hooks/useTenant';
 import { useAuth } from '@/hooks/useAuth';
 import { useMobileNav } from './MobileNavContext';
+import { hasStaffModule } from '@/services/staffService';
 import {
   LayoutDashboard,
   Users,
@@ -101,7 +102,7 @@ export const AdminSidebar: React.FC = () => {
   // always see everything, matching the backend's require_admin_or_staff_module.
   const isStaff = user?.backendRole === 'Staff';
   const visibleItems = isStaff
-    ? ADMIN_NAV_ITEMS.filter((item) => item.staffModule && user!.permissions.includes(item.staffModule))
+    ? ADMIN_NAV_ITEMS.filter((item) => hasStaffModule(user!.permissions, item.staffModule))
     : ADMIN_NAV_ITEMS;
   const renderEntries = groupNavItems(visibleItems);
 
