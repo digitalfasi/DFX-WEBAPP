@@ -307,22 +307,13 @@ export default function AdminPaymentsPage() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Advance (months)</label>
-            <Select
-              value={String(form.monthsCovered ?? 1)}
-              onChange={(e) => setForm((f) => ({ ...f, monthsCovered: Number(e.target.value) as 1 | 3 | 6 }))}
-            >
-              <option value="1">1 month (regular)</option>
-              <option value="3">3 months (advance)</option>
-              <option value="6">6 months (advance)</option>
-            </Select>
-            {(form.monthsCovered ?? 1) > 1 && (
-              <p className="text-[11px] text-slate-500">
-                Advance: amount must equal monthly × {form.monthsCovered}. One transaction, {form.monthsCovered} installments covered.
-              </p>
-            )}
-          </div>
+          <p className="text-[11px] text-slate-500">
+            Enter the full amount paid. The number of months covered is derived from
+            the enrollment&apos;s monthly amount — the amount must be a whole-month
+            multiple (e.g. monthly ₹1,000 → pay ₹1,000, ₹2,000, ₹4,000…). A single
+            payment can cover several months in advance. Non-multiple amounts and
+            amounts beyond the scheme&apos;s maturity are rejected.
+          </p>
 
           <div className="space-y-1">
             <label className="font-bold text-slate-500 uppercase text-[10px]">Remarks</label>
