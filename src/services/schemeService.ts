@@ -1,5 +1,21 @@
 import { apiClient } from '@/lib/apiClient';
 
+/** One selectable tier plan inside a scheme, as returned by the backend.
+ *  maturity_amount is derived server-side (monthly_amount x duration_months). */
+interface BackendSchemeTier {
+  id: string;
+  scheme_id: string;
+  monthly_amount: number;
+  duration_months: number;
+  bonus_percentage: number;
+  is_active: boolean;
+  // All derived server-side. maturity_amount == base_maturity_amount (bonus-free).
+  base_maturity_amount: number;
+  bonus_amount: number;
+  final_maturity_amount: number;
+  maturity_amount: number;
+}
+
 /** Shape of a `scheme` object returned by the FastAPI backend (Admin view). */
 interface BackendScheme {
   id: string;
@@ -13,6 +29,7 @@ interface BackendScheme {
   created_by: string;
   created_at: string;
   updated_at: string;
+  tiers?: BackendSchemeTier[];
 }
 
 /** Shape of a `scheme` object returned to customers — active-only, no internal IDs. */
@@ -23,6 +40,34 @@ interface BackendCustomerScheme {
   monthly_amount: number;
   duration_months: number;
   bonus_description: string | null;
+  tiers?: BackendSchemeTier[];
+}
+
+/** One selectable tier plan, mapped to camelCase. maturityAmount is derived by
+ *  the backend (monthlyAmount x durationMonths) — never computed here. */
+export interface SchemeTier {
+  id: string;
+  schemeId: string;
+  monthlyAmount: number;
+  durationMonths: number;
+  /** Bonus as a percentage of base maturity (0 = none). */
+  bonusPercentage: number;
+  isActive: boolean;
+  /** Derived server-side. baseMaturityAmount = monthly x duration (bonus-free). */
+  baseMaturityAmount: number;
+  bonusAmount: number;
+  finalMaturityAmount: number;
+  /** == baseMaturityAmount, kept for backward compatibility. */
+  maturityAmount: number;
+}
+
+/** A tier as supplied on scheme create/update. Maturity is derived server-side,
+ *  so only bonus_percentage is sent — never the money amounts of maturity. */
+export interface SchemeTierInput {
+  monthlyAmount: number;
+  durationMonths: number;
+  bonusPercentage?: number;
+  isActive?: boolean;
 }
 
 export interface AdminScheme {
@@ -36,6 +81,7 @@ export interface AdminScheme {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  tiers: SchemeTier[];
 }
 
 export interface CustomerScheme {
@@ -45,6 +91,7 @@ export interface CustomerScheme {
   monthlyAmount: number;
   durationMonths: number;
   bonusDescription: string;
+  tiers: SchemeTier[];
 }
 
 export interface SchemeFormData {
@@ -54,6 +101,22 @@ export interface SchemeFormData {
   durationMonths: number;
   bonusDescription?: string;
   isActive?: boolean;
+  tiers?: SchemeTierInput[];
+}
+
+function mapSchemeTier(raw: BackendSchemeTier): SchemeTier {
+  return {
+    id: raw.id,
+    schemeId: raw.scheme_id,
+    monthlyAmount: raw.monthly_amount,
+    durationMonths: raw.duration_months,
+    bonusPercentage: raw.bonus_percentage ?? 0,
+    isActive: raw.is_active,
+    baseMaturityAmount: raw.base_maturity_amount ?? raw.maturity_amount,
+    bonusAmount: raw.bonus_amount ?? 0,
+    finalMaturityAmount: raw.final_maturity_amount ?? raw.maturity_amount,
+    maturityAmount: raw.maturity_amount,
+  };
 }
 
 function mapAdminScheme(raw: BackendScheme): AdminScheme {
@@ -68,6 +131,7 @@ function mapAdminScheme(raw: BackendScheme): AdminScheme {
     createdBy: raw.created_by,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
+    tiers: (raw.tiers ?? []).map(mapSchemeTier),
   };
 }
 
@@ -79,6 +143,7 @@ function mapCustomerScheme(raw: BackendCustomerScheme): CustomerScheme {
     monthlyAmount: raw.monthly_amount,
     durationMonths: raw.duration_months,
     bonusDescription: raw.bonus_description ?? '',
+    tiers: (raw.tiers ?? []).map(mapSchemeTier),
   };
 }
 
@@ -90,6 +155,14 @@ function toBackendPayload(data: Partial<SchemeFormData>) {
     ...(data.durationMonths !== undefined && { duration_months: data.durationMonths }),
     ...(data.bonusDescription !== undefined && { bonus_description: data.bonusDescription }),
     ...(data.isActive !== undefined && { is_active: data.isActive }),
+    ...(data.tiers !== undefined && {
+      tiers: data.tiers.map((t) => ({
+        monthly_amount: t.monthlyAmount,
+        duration_months: t.durationMonths,
+        bonus_percentage: t.bonusPercentage ?? 0,
+        is_active: t.isActive ?? true,
+      })),
+    }),
   };
 }
 
@@ -219,10 +292,15 @@ export const schemeService = {
     return res.data.requests.map(mapSchemeRequest);
   },
 
-  /** POST /api/v1/scheme-requests/{id}/approve (Admin/Staff) — creates enrollment atomically. */
-  async approveRequest(id: string): Promise<SchemeRequest> {
+  /** POST /api/v1/scheme-requests/{id}/approve (Admin/Staff) — creates enrollment atomically.
+   *  schemeTierId selects the ACTIVE tier whose terms are snapshotted into the
+   *  enrollment. Required by the backend when the scheme offers active tiers;
+   *  omit only for a legacy scheme with none. */
+  async approveRequest(id: string, schemeTierId?: string): Promise<SchemeRequest> {
     const res = await apiClient.post<{ request: BackendSchemeRequest }>(
-      `/scheme-requests/${id}/approve`, {}, { auth: true },
+      `/scheme-requests/${id}/approve`,
+      { scheme_tier_id: schemeTierId ?? null },
+      { auth: true },
     );
     return mapSchemeRequest(res.data.request);
   },

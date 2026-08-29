@@ -1742,8 +1742,18 @@ export const billingService = {
   },
 
   /* Dashboard */
-  async getDashboardSummary(period?: BusinessHistoryPeriod): Promise<BillingDashboardSummary> {
-    const query = period ? `?period=${period}` : '';
+  async getDashboardSummary(
+    opts?: BusinessHistoryPeriod | { period?: BusinessHistoryPeriod; dateFrom?: string; dateTo?: string }
+  ): Promise<BillingDashboardSummary> {
+    // Back-compat: a bare period string still works. The object form adds an
+    // explicit date range (backend /billing/dashboard-summary already accepts
+    // date_from/date_to) for periods the enum doesn't cover (e.g. this year).
+    const o = typeof opts === 'string' ? { period: opts } : (opts ?? {});
+    const qs = new URLSearchParams();
+    if (o.period) qs.set('period', o.period);
+    if (o.dateFrom) qs.set('date_from', o.dateFrom);
+    if (o.dateTo) qs.set('date_to', o.dateTo);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
     const res = await apiClient.get<BackendBillingDashboardSummary>(`/billing/dashboard-summary${query}`, { auth: true });
     return mapDashboardSummary(res.data);
   },

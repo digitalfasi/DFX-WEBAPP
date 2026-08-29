@@ -51,9 +51,15 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'gold-rate', icon: 'Gem', label: 'Gold Rate', path: '/admin/gold-rate', ready: true, staffModule: 'gold_rate', group: null },
   { key: 'customers', icon: 'Users', label: 'Customers', path: '/admin/customers', ready: true, staffModule: 'customers', group: null },
   { key: 'kyc', icon: 'ShieldCheck', label: 'KYC Review', path: '/admin/kyc', ready: true, staffModule: 'kyc', group: null },
-  { key: 'schemes', icon: 'Coins', label: 'Schemes', path: '/admin/schemes', ready: true, staffModule: 'schemes', group: null },
-  { key: 'scheme-requests', icon: 'ClipboardList', label: 'Scheme Requests', path: '/admin/scheme-requests', ready: true, staffModule: 'enrollments', group: null },
-  { key: 'enrollments', icon: 'UserPlus', label: 'Enrollments', path: '/admin/enrollments', ready: true, staffModule: 'enrollments', group: null },
+  // Scheme System — Schemes + Enrollments + Collections share group: 'Scheme'
+  // (consecutive same-group items) so AdminSidebar renders them under one
+  // collapsible "Scheme" section. Payments stays a separate top-level item, NOT
+  // nested under Scheme. Each keeps its own real route so StaffAccessGuard's
+  // path-prefix match is unaffected. Scheme Requests removed per requirements
+  // (its route/page remain in the codebase, only the sidebar link is dropped).
+  { key: 'schemes', icon: 'Coins', label: 'Schemes', path: '/admin/schemes', ready: true, staffModule: 'schemes', group: 'Scheme' },
+  { key: 'enrollments', icon: 'UserPlus', label: 'Enrollments', path: '/admin/enrollments', ready: true, staffModule: 'enrollments', group: 'Scheme' },
+  { key: 'collections', icon: 'AlarmClock', label: 'Collections', path: '/admin/collections', ready: true, staffModule: 'reports', group: 'Scheme' },
   { key: 'payments', icon: 'CreditCard', label: 'Payments', path: '/admin/payments', ready: true, staffModule: 'payments', group: null },
   // Billing System — Inventory (Product Master) + Selling + Sales History.
   // Three flat entries sharing group: 'Billing' so AdminSidebar renders them
@@ -64,7 +70,6 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'billing-history', icon: 'Receipt', label: 'Sales History', path: '/admin/billing/history', ready: true, staffModule: 'billing', group: 'Billing' },
   { key: 'catalogue', icon: 'Tag', label: 'Catalogue Studio', path: '/admin/catalogue', ready: true, staffModule: 'catalogue', group: null },
   { key: 'marketing', icon: 'Megaphone', label: 'Marketing', path: '/admin/marketing', ready: true, staffModule: 'marketing', group: null },
-  { key: 'collections', icon: 'AlarmClock', label: 'Collections', path: '/admin/collections', ready: true, staffModule: 'reports', group: null },
   { key: 'reports', icon: 'TrendingUp', label: 'Reports & Analytics', path: '/admin/reports', ready: true, staffModule: 'reports', group: null },
   { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true, staffModule: 'branches', group: null },
   { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true, staffModule: null, group: null },

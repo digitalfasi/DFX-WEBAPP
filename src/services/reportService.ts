@@ -688,6 +688,9 @@ export const reportService = {
 
 export interface DashboardCards {
   overdue_enrollments: number;
+  /** Unique customers with at least one overdue enrollment (a customer with two
+   *  overdue enrollments counts once). Provided by the backend dashboard-cards. */
+  overdue_customers: number;
   pending_kyc: number;
   pending_inspection: number;
   /** Sellable inventory count (IN_STOCK). The data model has no quantity/reorder
