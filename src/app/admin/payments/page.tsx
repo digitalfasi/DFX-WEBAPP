@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/form-controls';
-import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Toast } from '@/components/ui/toast';
@@ -22,26 +21,17 @@ import {
 import {
   paymentService,
   AdminPayment,
-  PaymentMethod,
   PaymentStatus,
-  ManualPaymentFormData,
 } from '@/services/paymentService';
 import { ApiError } from '@/lib/apiClient';
+import RecordManualPaymentDialog from './_components/RecordManualPaymentDialog';
 
-const METHODS: PaymentMethod[] = ['CASH', 'BANK_TRANSFER', 'UPI', 'CARD', 'CHEQUE', 'ONLINE'];
 const STATUS_VARIANT: Record<PaymentStatus, 'success' | 'pending' | 'danger' | 'gold' | 'neutral'> = {
   SUCCESS: 'success',
   PENDING: 'pending',
   FAILED: 'danger',
   CANCELLED: 'neutral',
   REFUNDED: 'gold',
-};
-
-const EMPTY_FORM: ManualPaymentFormData = {
-  enrollmentId: '',
-  amount: 0,
-  paymentMethod: 'CASH',
-  remarks: '',
 };
 
 export default function AdminPaymentsPage() {
@@ -55,10 +45,6 @@ export default function AdminPaymentsPage() {
   const [statusFilter, setStatusFilter] = useState<'All' | PaymentStatus>('All');
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState<ManualPaymentFormData>(EMPTY_FORM);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -88,56 +74,11 @@ export default function AdminPaymentsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const openRecordDialog = () => {
-    setForm(EMPTY_FORM);
-    setFieldErrors({});
-    setFormError('');
-    setDialogOpen(true);
-  };
+  const openRecordDialog = () => setDialogOpen(true);
 
-  const handleSave = async () => {
-    setFieldErrors({});
-    setFormError('');
-
-    if (!form.enrollmentId.trim()) {
-      setFieldErrors({ enrollmentId: 'Enrollment number is required' });
-      return;
-    }
-    if (!form.amount || form.amount <= 0) {
-      setFieldErrors({ amount: 'Enter an amount greater than ₹0' });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await paymentService.recordManualPayment(form);
-      setToast({ message: 'Payment recorded successfully', type: 'success' });
-      setDialogOpen(false);
-      await loadPayments();
-    } catch (err) {
-      if (err instanceof ApiError && err.errors.length > 0) {
-        const next: Record<string, string> = {};
-        let banner = '';
-        const fieldMap: Record<string, string> = {
-          enrollment_id: 'enrollmentId',
-          amount: 'amount',
-          payment_method: 'paymentMethod',
-          payment_status: 'paymentStatus',
-        };
-        for (const e of err.errors) {
-          const mapped = e.field ? fieldMap[e.field] : undefined;
-          if (mapped) next[mapped] = e.message || 'Invalid value';
-          else banner = e.message || err.message;
-        }
-        setFieldErrors(next);
-        setFormError(Object.keys(next).length === 0 ? (banner || err.message) : '');
-      } else {
-        setFormError(err instanceof ApiError ? err.message : 'Could not record payment. Please try again.');
-      }
-      setToast({ message: 'Could not record payment', type: 'error' });
-    } finally {
-      setSaving(false);
-    }
+  const handleRecorded = () => {
+    setToast({ message: 'Payment recorded successfully', type: 'success' });
+    loadPayments();
   };
 
   return (
@@ -256,84 +197,11 @@ export default function AdminPaymentsPage() {
         </Card>
       )}
 
-      {/* RECORD MANUAL PAYMENT DIALOG */}
-      <Dialog
+      <RecordManualPaymentDialog
         isOpen={dialogOpen}
-        onClose={() => !saving && setDialogOpen(false)}
-        title="Record Manual Payment"
-      >
-        <div className="space-y-3.5 text-xs">
-          {formError && (
-            <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {formError}
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Enrollment Number *</label>
-            <Input
-              error={!!fieldErrors.enrollmentId}
-              value={form.enrollmentId}
-              onChange={(e) => setForm((f) => ({ ...f, enrollmentId: e.target.value }))}
-              placeholder="ENR-260819-7BF03A"
-              className="font-mono"
-            />
-            {fieldErrors.enrollmentId && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.enrollmentId}</p>}
-            <p className="text-[10px] text-slate-400">Enter the enrollment number shown on the customer&apos;s enrollment in the Enrollments tab.</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="font-bold text-slate-500 uppercase text-[10px]">Amount (₹) *</label>
-              <Input
-                type="number"
-                error={!!fieldErrors.amount}
-                value={form.amount || ''}
-                onChange={(e) => setForm((f) => ({ ...f, amount: Number(e.target.value) }))}
-              />
-              {fieldErrors.amount && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.amount}</p>}
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-bold text-slate-500 uppercase text-[10px]">Method *</label>
-              <Select
-                value={form.paymentMethod}
-                onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as PaymentMethod }))}
-              >
-                {METHODS.map((m) => (
-                  <option key={m} value={m}>{m.replace('_', ' ')}</option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-500">
-            Enter the full amount paid. The number of months covered is derived from
-            the enrollment&apos;s monthly amount — the amount must be a whole-month
-            multiple (e.g. monthly ₹1,000 → pay ₹1,000, ₹2,000, ₹4,000…). A single
-            payment can cover several months in advance. Non-multiple amounts and
-            amounts beyond the scheme&apos;s maturity are rejected.
-          </p>
-
-          <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Remarks</label>
-            <Input
-              value={form.remarks || ''}
-              onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))}
-              placeholder="e.g. Counter cash collection"
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" isLoading={saving} onClick={handleSave}>
-            Record Payment
-          </Button>
-        </DialogFooter>
-      </Dialog>
+        onClose={() => setDialogOpen(false)}
+        onRecorded={handleRecorded}
+      />
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />

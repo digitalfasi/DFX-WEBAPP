@@ -111,9 +111,13 @@ function mapCustomerEnrollment(raw: BackendCustomerEnrollment): CustomerEnrollme
 }
 
 export const enrollmentService = {
-  /** GET /api/v1/enrollments (Admin, read-only) */
-  async getAdminEnrollments(): Promise<AdminEnrollment[]> {
-    const res = await apiClient.get<{ enrollments: BackendAdminEnrollment[] }>('/enrollments', { auth: true });
+  /** GET /api/v1/enrollments (Admin, read-only). Pass customerId to scope the
+   * list to a single customer (used by the customer-first manual-payment flow). */
+  async getAdminEnrollments(customerId?: string): Promise<AdminEnrollment[]> {
+    const path = customerId
+      ? `/enrollments?customer_id=${encodeURIComponent(customerId)}`
+      : '/enrollments';
+    const res = await apiClient.get<{ enrollments: BackendAdminEnrollment[] }>(path, { auth: true });
     return res.data.enrollments.map(mapAdminEnrollment);
   },
 
@@ -248,6 +252,9 @@ interface BackendEnrollmentBalance {
   scheme_name: string;
   monthly_amount: number;
   duration_months: number;
+  maturity_amount: number;
+  months_paid: number;
+  next_due_date: string | null;
   successful_payment_count: number;
   total_paid: number;
   total_redeemed: number;
@@ -307,6 +314,9 @@ export interface EnrollmentBalance {
   schemeName: string;
   monthlyAmount: number;
   durationMonths: number;
+  maturityAmount: number;
+  monthsPaid: number;
+  nextDueDate: string | null;
   successfulPaymentCount: number;
   totalPaid: number;
   totalRedeemed: number;
@@ -332,6 +342,9 @@ function mapBalance(raw: BackendEnrollmentBalance): EnrollmentBalance {
     schemeName: raw.scheme_name,
     monthlyAmount: raw.monthly_amount,
     durationMonths: raw.duration_months,
+    maturityAmount: raw.maturity_amount,
+    monthsPaid: raw.months_paid ?? 0,
+    nextDueDate: raw.next_due_date,
     successfulPaymentCount: raw.successful_payment_count,
     totalPaid: raw.total_paid,
     totalRedeemed: raw.total_redeemed,
