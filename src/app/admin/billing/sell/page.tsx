@@ -674,9 +674,9 @@ export default function NewSalePage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 font-body max-w-6xl">
-      <div className="flex items-center gap-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+    <div className="space-y-4 animate-in fade-in duration-300 font-body max-w-7xl">
+      <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
           <Calculator className="h-5 w-5 text-gold" />
         </div>
         <div>
@@ -688,15 +688,17 @@ export default function NewSalePage() {
       </div>
 
       {(stage === 'scan' || stage === 'loading') && (
-        <Card className="p-8 flex flex-col items-center text-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
-            <ScanLine className="h-8 w-8 text-gold" />
+        <Card className="p-4 max-w-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+              <ScanLine className="h-5 w-5 text-gold" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-display font-bold text-sm text-[#0B0E23]">Enter / Scan Product Code</h2>
+              <p className="text-[11px] text-slate-500">Load pricing from today&apos;s gold rate — e.g. GN00125</p>
+            </div>
           </div>
-          <div>
-            <h2 className="font-display font-bold text-lg text-[#0B0E23]">Enter / Scan Product Code</h2>
-            <p className="text-xs text-slate-500 mt-1">e.g. GN00125</p>
-          </div>
-          <div className="w-full max-w-sm space-y-2">
+          <div className="flex gap-2 mt-3">
             <Input
               ref={inputRef}
               autoFocus
@@ -705,21 +707,21 @@ export default function NewSalePage() {
               onChange={(e) => setCode(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runScan(code)}
               placeholder="Product Code"
-              className="text-center text-lg font-mono font-bold h-14"
+              className="flex-1 text-base font-mono font-bold h-11"
               error={!!scanError}
             />
-            {scanError && <p className="text-xs font-medium text-red-600">{scanError}</p>}
-            <Button className="w-full h-12" isLoading={stage === 'loading'} onClick={() => runScan(code)}>
-              {stage === 'loading' ? 'Loading...' : 'Load Product'}
+            <Button className="h-11 px-6" isLoading={stage === 'loading'} onClick={() => runScan(code)}>
+              {stage === 'loading' ? 'Loading…' : 'Load'}
             </Button>
           </div>
+          {scanError && <p className="text-xs font-medium text-red-600 mt-2">{scanError}</p>}
         </Card>
       )}
 
       {stage === 'review' && quote && (
         <div className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-4 items-start">
-          {/* LEFT — product, pricing inputs, customer, payment, scheme */}
-          <div className="space-y-4 min-w-0">
+          {/* LEFT — Product → Customer → Pricing → Payment → Scheme */}
+          <div className="space-y-3 min-w-0">
           <Card className="p-4 flex items-center gap-4">
             <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
               {quote.inventoryItem.imageUrl ? (
@@ -745,6 +747,91 @@ export default function NewSalePage() {
             </Button>
           </Card>
 
+          {/* CUSTOMER — identify the buyer before pricing (spec hierarchy:
+            * Product → Customer → Pricing → Payment). */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Customer</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Name</label>
+                <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Walk-in customer name" />
+              </div>
+              <div className="space-y-1 relative">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mobile</label>
+                <Input value={customerPhone} onChange={(e) => onMobileChange(e.target.value)} placeholder="+91 90000 00000" />
+                {!customerId && customerPhone.replace(/\D/g, '').length >= 10 && (phoneSearching || phoneResults.length > 0) && (
+                  <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                    {phoneSearching ? (
+                      <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
+                    ) : (
+                      phoneResults.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => selectCustomer(c)}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                        >
+                          <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
+                          <span className="block text-[10px] text-slate-500 font-medium truncate">
+                            {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1 sm:col-span-2 relative">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Existing Customer (optional)
+                </label>
+                {customerId ? (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <span className="text-xs font-bold text-emerald-800 truncate">
+                      {customerName}{customerPhone ? ` · ${customerPhone}` : ''}
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={clearCustomer}>Change</Button>
+                  </div>
+                ) : (
+                  <>
+                    <Input
+                      value={customerQuery}
+                      onChange={(e) => setCustomerQuery(e.target.value)}
+                      placeholder="Search by name, phone or email"
+                    />
+                    {customerQuery.trim().length >= 2 && (
+                      <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                        {customerSearching ? (
+                          <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
+                        ) : customerResults.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-slate-400 font-medium">
+                            No customer found — leave blank for a walk-in sale.
+                          </p>
+                        ) : (
+                          customerResults.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => selectCustomer(c)}
+                              className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                            >
+                              <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
+                              <span className="block text-[10px] text-slate-500 font-medium truncate">
+                                {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* PRICING */}
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pricing</p>
           <PriceComparisonPanel
             purchaseCost={quote.inventoryItem.purchaseCost}
             todaysGoldValue={quote.breakdown.goldValueAmount}
@@ -798,100 +885,29 @@ export default function NewSalePage() {
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Name</label>
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Walk-in customer name" />
-            </div>
-            <div className="space-y-1 relative">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mobile</label>
-              <Input value={customerPhone} onChange={(e) => onMobileChange(e.target.value)} placeholder="+91 90000 00000" />
-              {!customerId && customerPhone.replace(/\D/g, '').length >= 10 && (phoneSearching || phoneResults.length > 0) && (
-                <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
-                  {phoneSearching ? (
-                    <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
-                  ) : (
-                    phoneResults.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => selectCustomer(c)}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                      >
-                        <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
-                        <span className="block text-[10px] text-slate-500 font-medium truncate">
-                          {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="space-y-1 sm:col-span-2 relative">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                Existing Customer (optional)
-              </label>
-              {customerId ? (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <span className="text-xs font-bold text-emerald-800 truncate">
-                    {customerName}{customerPhone ? ` · ${customerPhone}` : ''}
-                  </span>
-                  <Button variant="ghost" size="sm" onClick={clearCustomer}>Change</Button>
-                </div>
-              ) : (
-                <>
-                  <Input
-                    value={customerQuery}
-                    onChange={(e) => setCustomerQuery(e.target.value)}
-                    placeholder="Search by name, phone or email"
-                  />
-                  {customerQuery.trim().length >= 2 && (
-                    <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
-                      {customerSearching ? (
-                        <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
-                      ) : customerResults.length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-slate-400 font-medium">
-                          No customer found — leave blank for a walk-in sale.
-                        </p>
-                      ) : (
-                        customerResults.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => selectCustomer(c)}
-                            className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                          >
-                            <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
-                            <span className="block text-[10px] text-slate-500 font-medium truncate">
-                              {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Method</label>
-              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
-                {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Status</label>
-              <Select
-                value={paymentStatus}
-                onChange={(e) => {
-                  const next = e.target.value as PaymentStatus;
-                  setPaymentStatus(next);
-                  if (next !== 'PARTIAL') setInitialPayment('');
-                }}
-              >
-                {PAYMENT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </Select>
+          {/* PAYMENT */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Payment</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Method</label>
+                <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
+                  {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Status</label>
+                <Select
+                  value={paymentStatus}
+                  onChange={(e) => {
+                    const next = e.target.value as PaymentStatus;
+                    setPaymentStatus(next);
+                    if (next !== 'PARTIAL') setInitialPayment('');
+                  }}
+                >
+                  {PAYMENT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </Select>
+              </div>
             </div>
           </div>
 
@@ -1063,7 +1079,8 @@ export default function NewSalePage() {
           </div>
 
           {/* RIGHT — sticky Bill Summary: the single anchored total + breakdown + actions */}
-          <div className="space-y-4 lg:sticky lg:top-4">
+          <div className="space-y-3 lg:sticky lg:top-4">
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bill Summary</p>
           <PriceBreakdownCard breakdown={quote.breakdown} />
 
           {safePrice && (

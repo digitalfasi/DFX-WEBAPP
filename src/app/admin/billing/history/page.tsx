@@ -410,9 +410,9 @@ export default function SalesHistoryPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 font-body">
-      <div className="flex items-center gap-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+    <div className="space-y-4 animate-in fade-in duration-300 font-body">
+      <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
           <Receipt className="h-5 w-5 text-gold" />
         </div>
         <div>
@@ -470,59 +470,41 @@ export default function SalesHistoryPage() {
         ))}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
+      {/* One compact filter toolbar — search, date range, product filters,
+        * period and export in a single coherent row (wraps on narrow widths). */}
+      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
             placeholder="Search invoice, code, or customer..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && loadSales()}
-            className="pl-9"
+            className="pl-9 h-10"
           />
         </div>
-        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="max-w-[160px]" />
-        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="max-w-[160px]" />
-        <Button variant="outline" onClick={() => loadSales()}>Filter</Button>
-        {/* Export period is only used when no custom date range is set — the
-          * backend applies the same precedence. */}
-        <div className="w-[170px] shrink-0">
-          <Select value={period} onChange={(e) => setPeriod(e.target.value as SalesHistoryPeriod)}>
-            {SALES_HISTORY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </Select>
-        </div>
-        <Button variant="outline" onClick={openExport}>
-          <Download className="h-4 w-4 mr-1.5" />
-          Export Report
-        </Button>
-      </div>
-
-      <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center">
-        <Select
-          className="w-full sm:w-[170px]"
-          value={fCategory}
-          onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}
-        >
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10 w-[150px]" />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10 w-[150px]" />
+        <Select className="h-10 w-[150px]" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
           <option value="">All Categories</option>
           {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
         </Select>
-        <Select
-          className="w-full sm:w-[170px]"
-          value={fSubcategory}
-          onChange={(e) => setFSubcategory(e.target.value)}
-          disabled={subcategoryOptions.length === 0}
-        >
+        <Select className="h-10 w-[150px]" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
           <option value="">All Sub-categories</option>
           {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
         </Select>
-        <Select className="w-full sm:w-[130px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
+        <Select className="h-10 w-[120px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
           <option value="">All Purity</option>
           {PURITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </Select>
-        <Button variant="outline" onClick={() => loadSales()}>Apply</Button>
+        {/* Export period applies only when no custom date range is set. */}
+        <Select className="h-10 w-[150px]" value={period} onChange={(e) => setPeriod(e.target.value as SalesHistoryPeriod)}>
+          {SALES_HISTORY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+        </Select>
+        <Button variant="outline" className="h-10" onClick={() => loadSales()}>Apply</Button>
         <Button
           variant="ghost"
-          className="text-slate-500"
+          className="h-10 text-slate-500"
           disabled={!fCategory && !fSubcategory && !fPurity}
           onClick={() => {
             setFCategory(''); setFSubcategory(''); setFPurity('');
@@ -530,6 +512,9 @@ export default function SalesHistoryPage() {
           }}
         >
           Clear
+        </Button>
+        <Button variant="outline" className="h-10 ml-auto" onClick={openExport}>
+          <Download className="h-4 w-4 mr-1.5" /> Export
         </Button>
       </div>
 
@@ -563,45 +548,45 @@ export default function SalesHistoryPage() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   {['Invoice', 'Date', 'Product', 'Category', 'Sub-category', 'Vendor', 'Customer', 'Total', 'Paid', 'Outstanding', 'Profit/Loss', 'Payment', ''].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
+                    <th key={h} className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {sales.map((sale) => (
                   <tr key={sale.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-4 py-3 text-xs font-mono font-bold text-[#0B0E23]">{sale.invoiceNumber}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">
+                    <td className="px-3 py-2.5 text-xs font-mono font-bold text-[#0B0E23]">{sale.invoiceNumber}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-600">
                       {new Date(sale.saleTimestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                     </td>
-                    <td className="px-4 py-3 text-xs">
+                    <td className="px-3 py-2.5 text-xs">
                       <span className="font-mono font-bold text-slate-500">{sale.productCode}</span>
                       <span className="block text-[11px] font-semibold text-[#0B0E23]">{sale.productName}</span>
                     </td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.category || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.subcategory || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-600">{sale.category || '—'}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-600">{sale.subcategory || '—'}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium text-slate-600">
                       <div className="truncate">{sale.customerName || 'Walk-in'}</div>
                       {sale.customerCode && (
                         <div className="font-mono text-[10px] text-slate-400 whitespace-nowrap">{sale.customerCode}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs font-bold text-gold-dark font-mono">{formatCurrency(sale.finalAmount)}</td>
-                    <td className="px-4 py-3 text-xs font-mono font-bold text-emerald-700">{formatCurrency(sale.amountPaid)}</td>
-                    <td className="px-4 py-3 text-xs font-mono font-bold">
+                    <td className="px-3 py-2.5 text-xs font-bold text-gold-dark font-mono whitespace-nowrap">{formatCurrency(sale.finalAmount)}</td>
+                    <td className="px-3 py-2.5 text-xs font-mono font-bold text-emerald-700 whitespace-nowrap">{formatCurrency(sale.amountPaid)}</td>
+                    <td className="px-3 py-2.5 text-xs font-mono font-bold whitespace-nowrap">
                       {sale.amountOutstanding > 0
                         ? <span className="text-amber-700">{formatCurrency(sale.amountOutstanding)}</span>
                         : <span className="text-slate-400">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-xs font-mono font-bold">
+                    <td className="px-3 py-2.5 text-xs font-mono font-bold whitespace-nowrap">
                       {sale.estimatedGrossMargin !== null ? (
                         <span className={sale.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}>
                           {sale.estimatedGrossMargin < 0 ? '-' : ''}{formatCurrency(Math.abs(sale.estimatedGrossMargin))}
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       <div className="flex flex-col items-start gap-1">
                         <Badge variant={paymentTone(sale.paymentStatus)}>{sale.paymentStatus}</Badge>
                         {sale.saleStatus !== 'COMPLETED' && (
@@ -609,7 +594,7 @@ export default function SalesHistoryPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <Button size="sm" variant="outline" onClick={() => openSale(sale)}>View</Button>
                     </td>
                   </tr>
@@ -617,7 +602,7 @@ export default function SalesHistoryPage() {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-3 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
+          <div className="px-3 py-2.5 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
             {total} sale{total === 1 ? '' : 's'}
           </div>
         </Card>
@@ -658,11 +643,11 @@ export default function SalesHistoryPage() {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Payments</p>
               </div>
 
-              {historyLoading && <p className="px-4 py-3 text-xs text-slate-500 font-medium">Loading payments…</p>}
+              {historyLoading && <p className="px-3 py-2.5 text-xs text-slate-500 font-medium">Loading payments…</p>}
 
               {history && (
                 <>
-                  <div className="grid grid-cols-4 gap-2 px-4 py-3 text-center border-b border-slate-100">
+                  <div className="grid grid-cols-4 gap-2 px-3 py-2.5 text-center border-b border-slate-100">
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total</p>
                       <p className="text-sm font-bold font-mono text-[#0B0E23]">{formatCurrency(history.finalAmount)}</p>
@@ -682,7 +667,7 @@ export default function SalesHistoryPage() {
                   </div>
 
                   {history.payments.length === 0 ? (
-                    <p className="px-4 py-3 text-xs text-slate-500 font-medium">
+                    <p className="px-3 py-2.5 text-xs text-slate-500 font-medium">
                       No payment recorded against this invoice yet.
                     </p>
                   ) : (
@@ -747,7 +732,7 @@ export default function SalesHistoryPage() {
                   )}
 
                   {history.amountOutstanding > 0 && selected.saleStatus === 'COMPLETED' && (
-                    <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/60 space-y-2">
+                    <div className="px-3 py-2.5 border-t border-slate-200 bg-slate-50/60 space-y-2">
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Add Payment</p>
                       <div className="grid grid-cols-2 gap-2">
                         <Input
@@ -777,7 +762,7 @@ export default function SalesHistoryPage() {
               )}
 
               {!historyLoading && !history && payError && (
-                <p className="px-4 py-3 text-xs font-medium text-red-600">{payError}</p>
+                <p className="px-3 py-2.5 text-xs font-medium text-red-600">{payError}</p>
               )}
             </div>
 
@@ -791,7 +776,7 @@ export default function SalesHistoryPage() {
                     {returnRecord.returnType === 'CANCELLATION' ? 'Sale Cancelled' : 'Sale Returned'}
                   </p>
                 </div>
-                <div className="px-4 py-3 space-y-2">
+                <div className="px-3 py-2.5 space-y-2">
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Refunded</p>
