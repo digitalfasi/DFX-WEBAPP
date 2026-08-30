@@ -1923,6 +1923,7 @@ export const billingService = {
     category?: string;
     purity?: string;
     subcategory?: string;
+    period?: string;
   } = {}): Promise<{ sales: Sale[]; total: number; totalGoldWeightGrams: number; totalOutstanding: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -1935,6 +1936,7 @@ export const billingService = {
     if (params.category) query.set('category', params.category);
     if (params.purity) query.set('purity', params.purity);
     if (params.subcategory) query.set('subcategory', params.subcategory);
+    if (params.period) query.set('period', params.period);
 
     // Additive dashboard aggregates — server-provided, defaulted to 0 when the
     // backend omits them so existing callers stay unaffected.

@@ -462,7 +462,7 @@ export default function InventoryPage() {
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filtered Gold</p>
                 <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldWeightGrams)}</p>
                 <p className="text-[10px] text-slate-400 font-medium truncate">
-                  {[fPurity, fCategory, fSubcategory].filter(Boolean).join(' · ') || 'Current filters'} · {total} item{total === 1 ? '' : 's'}
+                  {[fPurity, fCategory, fSubcategory, statusFilter ? statusFilter.replace('_', ' ') : ''].filter(Boolean).join(' · ') || 'Current filters'} · {total} item{total === 1 ? '' : 's'}
                 </p>
               </div>
             </Card>
@@ -470,52 +470,56 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col lg:flex-row gap-2">
-          <div className="relative flex-1 min-w-[220px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Search by product code or name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && loadItems()}
-              className="pl-9 h-10"
-            />
-          </div>
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StockStatus | '')}
-            className="h-10 w-full sm:w-[170px]"
-          >
+      {/* One compact filter toolbar — search, status, vendor and product filters
+        * on a single baseline (wraps deliberately on narrow widths). */}
+      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search by product code or name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && loadItems()}
+            className="pl-9 h-10"
+          />
+        </div>
+        <div className="w-[150px] shrink-0">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StockStatus | '')} className="h-10 w-full">
             <option value="">All statuses</option>
             <option value="IN_STOCK">In Stock</option>
             <option value="SOLD">Sold</option>
             <option value="INACTIVE">Inactive</option>
           </Select>
-          <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="h-10 w-full sm:w-[170px]">
+        </div>
+        <div className="w-[150px] shrink-0">
+          <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="h-10 w-full">
             <option value="">All vendors</option>
             {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </Select>
-          <Button variant="outline" className="h-10" onClick={loadItems}>Search</Button>
         </div>
-        <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center">
-          <Select className="h-10 w-full sm:w-[170px]" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
+        <div className="w-[150px] shrink-0">
+          <Select className="h-10 w-full" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
             <option value="">All Categories</option>
             {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
-          <Select className="h-10 w-full sm:w-[170px]" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
+        </div>
+        <div className="w-[150px] shrink-0">
+          <Select className="h-10 w-full" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
             <option value="">All Sub-categories</option>
             {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
-          <Select className="h-10 w-full sm:w-[130px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
+        </div>
+        <div className="w-[120px] shrink-0">
+          <Select className="h-10 w-full" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
             <option value="">All Purity</option>
             {purityOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
-          <Button variant="ghost" className="h-10 text-slate-500" onClick={clearAllFilters} disabled={!filtersActive}>Clear</Button>
-          <span className="text-[11px] font-medium text-slate-400 sm:ml-auto">
-            Showing {items.length}{total > items.length ? ` of ${total}` : ''} matching
-          </span>
         </div>
+        <Button variant="outline" className="h-10" onClick={loadItems}>Search</Button>
+        <Button variant="ghost" className="h-10 text-slate-500" onClick={clearAllFilters} disabled={!filtersActive}>Clear</Button>
+        <span className="text-[11px] font-medium text-slate-400 ml-auto">
+          Showing {items.length}{total > items.length ? ` of ${total}` : ''} matching
+        </span>
       </div>
 
       {loading && (

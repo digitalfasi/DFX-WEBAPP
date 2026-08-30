@@ -22,11 +22,11 @@ export function PriceBreakdownCard({
   breakdown: PriceBreakdown;
   margin?: { purchaseCost: number | null; estimatedGrossMargin: number | null } | null;
 }) {
+  // Gold Profit is an INTERNAL margin — never itemised on this customer-facing
+  // summary. It is folded into the Gold Value line so the visible rows still
+  // reconcile to Subtotal (subtotal_before_tax already includes gold profit).
   const rows: Row[] = [
-    { label: `Gold Value (${breakdown.netGoldWeightGrams.toFixed(3)}g × ${formatCurrency(breakdown.goldRateApplied)}/g)`, value: formatCurrency(breakdown.goldValueAmount) },
-    ...(breakdown.goldProfitAmount > 0
-      ? [{ label: `Gold Profit (${breakdown.goldProfitPercent}%)`, value: formatCurrency(breakdown.goldProfitAmount) }]
-      : []),
+    { label: `Gold Value (${breakdown.netGoldWeightGrams.toFixed(3)}g)`, value: formatCurrency(breakdown.goldValueAmount + (breakdown.goldProfitAmount || 0)) },
     { label: `Making Charge (${chargeLabel(breakdown.makingChargeType, breakdown.makingChargeValue)})`, value: formatCurrency(breakdown.makingChargeAmount) },
     { label: `Wastage (${chargeLabel(breakdown.wastageType, breakdown.wastageValue)})`, value: formatCurrency(breakdown.wastageAmount) },
     { label: 'Stone Charge', value: formatCurrency(breakdown.stoneChargeAmount) },
@@ -67,7 +67,7 @@ export function PriceBreakdownCard({
             )}
             <div className="flex items-center justify-between text-xs font-bold">
               <span className="text-slate-500">
-                {margin.estimatedGrossMargin >= 0 ? '🟢 Profit' : '🔴 Loss'}
+                {margin.estimatedGrossMargin >= 0 ? 'Profit' : 'Loss'}
                 {margin.purchaseCost && margin.purchaseCost > 0
                   ? ` · ${((margin.estimatedGrossMargin / margin.purchaseCost) * 100).toFixed(1)}%`
                   : ''}

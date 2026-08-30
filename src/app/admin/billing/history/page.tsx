@@ -139,6 +139,10 @@ export default function SalesHistoryPage() {
         search: search || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
+        // Named period is resolved server-side to a date window; explicit
+        // date_from/date_to win over it (backend precedence). Global KPI never
+        // sends period, so it stays all-time regardless of this.
+        period: period || undefined,
         category: cat || undefined,
         subcategory: sub || undefined,
         purity: pur || undefined,
@@ -439,7 +443,7 @@ export default function SalesHistoryPage() {
               <p className="text-[10px] text-slate-400 font-medium">All sales · unaffected by filters</p>
             </div>
           </Card>
-          {(search || dateFrom || dateTo || statusTab !== 'ALL' || fCategory || fSubcategory || fPurity) && (
+          {(search || dateFrom || dateTo || statusTab !== 'ALL' || fCategory || fSubcategory || fPurity || period) && (
             <Card className="p-4 flex items-center gap-4 border-gold/40 bg-gold/5">
               <div className="w-10 h-10 rounded-xl bg-white border border-gold/30 flex items-center justify-center shrink-0">
                 <Scale className="h-5 w-5 text-gold" />
@@ -447,7 +451,16 @@ export default function SalesHistoryPage() {
               <div className="min-w-0">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filtered Gold Sold</p>
                 <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldSold)}</p>
-                <p className="text-[10px] text-slate-400 font-medium truncate">{total} sale{total === 1 ? '' : 's'} matching filters</p>
+                <p className="text-[10px] text-slate-400 font-medium truncate">
+                  {[
+                    fPurity,
+                    fCategory,
+                    fSubcategory,
+                    statusTab !== 'ALL' ? statusTab : '',
+                    // Explicit dates win over period; label whichever is in effect.
+                    (dateFrom && dateTo) ? `${dateFrom} → ${dateTo}` : (SALES_HISTORY_PERIODS.find((p) => p.value === period)?.label || ''),
+                  ].filter(Boolean).join(' · ')} · {total} sale{total === 1 ? '' : 's'}
+                </p>
               </div>
             </Card>
           )}
@@ -483,24 +496,32 @@ export default function SalesHistoryPage() {
             className="pl-9 h-10"
           />
         </div>
-        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10 w-[150px]" />
-        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10 w-[150px]" />
-        <Select className="h-10 w-[150px]" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
-          <option value="">All Categories</option>
-          {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-        </Select>
-        <Select className="h-10 w-[150px]" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
-          <option value="">All Sub-categories</option>
-          {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-        </Select>
-        <Select className="h-10 w-[120px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
-          <option value="">All Purity</option>
-          {PURITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-        </Select>
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10 w-[150px] shrink-0" />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10 w-[150px] shrink-0" />
+        <div className="w-[150px] shrink-0">
+          <Select className="h-10 w-full" value={fCategory} onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}>
+            <option value="">All Categories</option>
+            {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+        </div>
+        <div className="w-[150px] shrink-0">
+          <Select className="h-10 w-full" value={fSubcategory} onChange={(e) => setFSubcategory(e.target.value)} disabled={subcategoryOptions.length === 0}>
+            <option value="">All Sub-categories</option>
+            {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+        </div>
+        <div className="w-[120px] shrink-0">
+          <Select className="h-10 w-full" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
+            <option value="">All Purity</option>
+            {PURITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </Select>
+        </div>
         {/* Export period applies only when no custom date range is set. */}
-        <Select className="h-10 w-[150px]" value={period} onChange={(e) => setPeriod(e.target.value as SalesHistoryPeriod)}>
-          {SALES_HISTORY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </Select>
+        <div className="w-[150px] shrink-0">
+          <Select className="h-10 w-full" value={period} onChange={(e) => setPeriod(e.target.value as SalesHistoryPeriod)}>
+            {SALES_HISTORY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </Select>
+        </div>
         <Button variant="outline" className="h-10" onClick={() => loadSales()}>Apply</Button>
         <Button
           variant="ghost"
