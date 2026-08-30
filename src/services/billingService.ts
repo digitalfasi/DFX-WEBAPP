@@ -649,6 +649,8 @@ interface BackendSale extends BackendPriceBreakdown {
   customer_phone: string | null;
   product_code: string;
   product_name: string;
+  category: string | null;
+  subcategory: string | null;
   vendor_name: string | null;
   huid: string | null;
   gross_weight_grams: number;
@@ -679,6 +681,10 @@ export interface Sale extends PriceBreakdown {
   customerPhone: string | null;
   productCode: string;
   productName: string;
+  /** Category / sub-category of the linked inventory item. Null for a sale whose
+   * item predates category capture (or was since deleted). */
+  category: string | null;
+  subcategory: string | null;
   vendorName: string | null;
   huid: string | null;
   grossWeightGrams: number;
@@ -711,6 +717,8 @@ function mapSale(raw: BackendSale): Sale {
     customerPhone: raw.customer_phone,
     productCode: raw.product_code,
     productName: raw.product_name,
+    category: raw.category ?? null,
+    subcategory: raw.subcategory ?? null,
     vendorName: raw.vendor_name,
     huid: raw.huid,
     grossWeightGrams: raw.gross_weight_grams,
@@ -1536,6 +1544,13 @@ export const billingService = {
     await downloadBlob(`/billing/sales/${saleId}/invoice.xlsx`, `${invoiceNumber}.xlsx`);
   },
 
+  /* Server-rendered quotation PDF — same raw-blob download path as the invoice
+   * PDF; the backend reuses its reportlab exporter and applies customer-facing
+   * privacy (gold profit folded into Gold Value, no purchase/vendor cost). */
+  async downloadQuotationPdf(quotationId: string, quotationNumber: string): Promise<void> {
+    await downloadBlob(`/billing/quotation/${quotationId}/pdf`, `${quotationNumber}.pdf`);
+  },
+
   /* Sales History export — same raw-blob download path as the per-invoice
    * exports above, and respects exactly the filters the screen is showing. */
   async downloadSalesHistoryExcel(params: {
@@ -1905,6 +1920,9 @@ export const billingService = {
     dateTo?: string;
     paymentStatus?: SalePaymentStatus;
     saleStatus?: SaleStatus;
+    category?: string;
+    purity?: string;
+    subcategory?: string;
   } = {}): Promise<{ sales: Sale[]; total: number; totalGoldWeightGrams: number; totalOutstanding: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -1914,6 +1932,9 @@ export const billingService = {
     if (params.dateTo) query.set('date_to', params.dateTo);
     if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
     if (params.saleStatus) query.set('sale_status', params.saleStatus);
+    if (params.category) query.set('category', params.category);
+    if (params.purity) query.set('purity', params.purity);
+    if (params.subcategory) query.set('subcategory', params.subcategory);
 
     // Additive dashboard aggregates — server-provided, defaulted to 0 when the
     // backend omits them so existing callers stay unaffected.

@@ -7,14 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Receipt, Search, FileX, Download, Wallet, Undo2, PackageCheck } from 'lucide-react';
+import { Receipt, Search, FileX, Download, Wallet, Undo2, PackageCheck, Scale } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/form-controls';
 import {
   billingService, Sale, PaymentMethod, SalePaymentHistory,
   PAYMENT_METHOD_OPTIONS, SALES_HISTORY_PERIODS, SalesHistoryPeriod,
   SalePaymentStatus, SaleStatus, SaleReturn, SaleReturnPreview, ReturnType,
-  SalesExportField,
+  SalesExportField, PURITY_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
@@ -68,6 +68,10 @@ function todayIso(): string {
 export default function SalesHistoryPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [total, setTotal] = useState(0);
+  // Filter-aware gold-sold aggregate (current filters) + the global,
+  // filter-independent total (unfiltered listSales, server aggregate).
+  const [totalGoldSold, setTotalGoldSold] = useState(0);
+  const [globalGoldSold, setGlobalGoldSold] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -76,6 +80,14 @@ export default function SalesHistoryPage() {
   const [statusTab, setStatusTab] = useState<TabKey>('ALL');
   const [period, setPeriod] = useState<SalesHistoryPeriod>('this_month');
   const [exporting, setExporting] = useState(false);
+  // Product filters — backend-resolved (purity off the frozen sale snapshot;
+  // category/subcategory via the linked inventory item). Category/subcategory
+  // option lists are gathered from the global sales set, not the current page.
+  const [fCategory, setFCategory] = useState('');
+  const [fSubcategory, setFSubcategory] = useState('');
+  const [fPurity, setFPurity] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [subcategoryOptions, setSubcategoryOptions] = useState<string[]>([]);
 
   /* Export / Report Builder. CA and Owner reuse the existing dedicated exports;
    * Custom sends a chosen field set that the backend re-authorizes. */
@@ -110,8 +122,16 @@ export default function SalesHistoryPage() {
   const [returnSaving, setReturnSaving] = useState(false);
   const { branding } = useTenant();
 
-  const loadSales = async (statusOverride?: TabKey) => {
+  const loadSales = async (
+    statusOverride?: TabKey,
+    // Explicit product-filter values for calls that fire in the same tick as a
+    // state reset (e.g. Clear), where reading the state would see stale values.
+    filterOverride?: { category?: string; subcategory?: string; purity?: string },
+  ) => {
     const status = statusOverride ?? statusTab;
+    const cat = filterOverride ? filterOverride.category : fCategory;
+    const sub = filterOverride ? filterOverride.subcategory : fSubcategory;
+    const pur = filterOverride ? filterOverride.purity : fPurity;
     setLoading(true);
     setLoadError('');
     try {
@@ -119,11 +139,15 @@ export default function SalesHistoryPage() {
         search: search || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
+        category: cat || undefined,
+        subcategory: sub || undefined,
+        purity: pur || undefined,
         ...tabFilters(status),
         limit: 100,
       });
       setSales(res.sales);
       setTotal(res.total);
+      setTotalGoldSold(res.totalGoldWeightGrams);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load sales history.');
     } finally {
@@ -131,8 +155,24 @@ export default function SalesHistoryPage() {
     }
   };
 
+  // Global, filter-independent gold-sold total. One unfiltered call; the backend
+  // returns the full aggregate regardless of page size, so filters never move it.
+  const loadGlobalGold = async () => {
+    try {
+      // Unfiltered: backend returns the full gold aggregate regardless of limit.
+      // The returned page also seeds the category/sub-category filter options.
+      const res = await billingService.listSales({ limit: 100 });
+      setGlobalGoldSold(res.totalGoldWeightGrams);
+      const cats = Array.from(new Set(res.sales.map((s) => s.category).filter((c): c is string => !!c))).sort();
+      const subs = Array.from(new Set(res.sales.map((s) => s.subcategory).filter((c): c is string => !!c))).sort();
+      setCategoryOptions(cats);
+      setSubcategoryOptions(subs);
+    } catch { /* KPI best-effort; leave at 0 if unavailable */ }
+  };
+
   useEffect(() => {
     loadSales();
+    loadGlobalGold();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -383,6 +423,37 @@ export default function SalesHistoryPage() {
         </div>
       </div>
 
+      {/* GLOBAL Total Gold Sold (filter-independent) + a filter-aware card shown
+       * only when the supported filters (search / date / status) are active, so
+       * the two never read as duplicate. Category/purity breakdown needs backend
+       * fields the sales list does not yet expose — deferred, not faked here. */}
+      {!loadError && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+              <Scale className="h-5 w-5 text-gold" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Gold Sold</p>
+              <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(globalGoldSold)}</p>
+              <p className="text-[10px] text-slate-400 font-medium">All sales · unaffected by filters</p>
+            </div>
+          </Card>
+          {(search || dateFrom || dateTo || statusTab !== 'ALL' || fCategory || fSubcategory || fPurity) && (
+            <Card className="p-4 flex items-center gap-4 border-gold/40 bg-gold/5">
+              <div className="w-10 h-10 rounded-xl bg-white border border-gold/30 flex items-center justify-center shrink-0">
+                <Scale className="h-5 w-5 text-gold" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filtered Gold Sold</p>
+                <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldSold)}</p>
+                <p className="text-[10px] text-slate-400 font-medium truncate">{total} sale{total === 1 ? '' : 's'} matching filters</p>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1 bg-white p-1 rounded-xl border border-slate-200 w-fit">
         {STATUS_TABS.map((tab) => (
           <button
@@ -426,6 +497,42 @@ export default function SalesHistoryPage() {
         </Button>
       </div>
 
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center">
+        <Select
+          className="w-full sm:w-[170px]"
+          value={fCategory}
+          onChange={(e) => { setFCategory(e.target.value); setFSubcategory(''); }}
+        >
+          <option value="">All Categories</option>
+          {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <Select
+          className="w-full sm:w-[170px]"
+          value={fSubcategory}
+          onChange={(e) => setFSubcategory(e.target.value)}
+          disabled={subcategoryOptions.length === 0}
+        >
+          <option value="">All Sub-categories</option>
+          {subcategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <Select className="w-full sm:w-[130px]" value={fPurity} onChange={(e) => setFPurity(e.target.value)}>
+          <option value="">All Purity</option>
+          {PURITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </Select>
+        <Button variant="outline" onClick={() => loadSales()}>Apply</Button>
+        <Button
+          variant="ghost"
+          className="text-slate-500"
+          disabled={!fCategory && !fSubcategory && !fPurity}
+          onClick={() => {
+            setFCategory(''); setFSubcategory(''); setFPurity('');
+            loadSales(undefined, { category: '', subcategory: '', purity: '' });
+          }}
+        >
+          Clear
+        </Button>
+      </div>
+
       {loading && (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
@@ -455,7 +562,7 @@ export default function SalesHistoryPage() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {['Invoice', 'Date', 'Product', 'Vendor', 'Customer', 'Total', 'Paid', 'Outstanding', 'Profit/Loss', 'Payment', ''].map((h) => (
+                  {['Invoice', 'Date', 'Product', 'Category', 'Sub-category', 'Vendor', 'Customer', 'Total', 'Paid', 'Outstanding', 'Profit/Loss', 'Payment', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
                   ))}
                 </tr>
@@ -471,6 +578,8 @@ export default function SalesHistoryPage() {
                       <span className="font-mono font-bold text-slate-500">{sale.productCode}</span>
                       <span className="block text-[11px] font-semibold text-[#0B0E23]">{sale.productName}</span>
                     </td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.category || '—'}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.subcategory || '—'}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">
                       <div className="truncate">{sale.customerName || 'Walk-in'}</div>
@@ -488,7 +597,7 @@ export default function SalesHistoryPage() {
                     <td className="px-4 py-3 text-xs font-mono font-bold">
                       {sale.estimatedGrossMargin !== null ? (
                         <span className={sale.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                          {sale.estimatedGrossMargin >= 0 ? '🟢 ' : '🔴 '}{formatCurrency(Math.abs(sale.estimatedGrossMargin))}
+                          {sale.estimatedGrossMargin < 0 ? '-' : ''}{formatCurrency(Math.abs(sale.estimatedGrossMargin))}
                         </span>
                       ) : '—'}
                     </td>

@@ -15,7 +15,6 @@ import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
-import { printQuotation } from '../_components/printQuotation';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
@@ -138,6 +137,8 @@ export default function NewSalePage() {
 
   const clearCustomer = () => {
     setCustomerId('');
+    setCustomerName('');
+    setCustomerPhone('');
     setCustomerQuery('');
     setCustomerResults([]);
     setPhoneResults([]);
@@ -152,7 +153,13 @@ export default function NewSalePage() {
   const onMobileChange = (val: string) => {
     setCustomerPhone(val);
     if (customerId) {
+      // A resolved customer is being replaced — release the whole selection
+      // (id, name, name-box query, schemes) so Customer A never lingers while
+      // the number now points at Customer B.
       setCustomerId('');
+      setCustomerName('');
+      setCustomerQuery('');
+      setCustomerResults([]);
       setSchemeOptions([]);
       setSchemeAmounts({});
     }
@@ -529,14 +536,9 @@ export default function NewSalePage() {
         wastageValue: num(wastageValue),
         goldProfitPercent: num(goldProfitPct),
       });
-      printQuotation(q, {
-        storeName: branding.brandName,
-        category: quote.inventoryItem.category,
-        subcategory: quote.inventoryItem.subcategory,
-        grossWeightGrams: quote.inventoryItem.grossWeightGrams,
-        netGoldWeightGrams: quote.inventoryItem.netGoldWeightGrams,
-        huid: quote.inventoryItem.huid,
-      });
+      // Real one-click PDF from the server exporter (reuses the invoice PDF
+      // infrastructure, applies customer-facing privacy) — no browser-print step.
+      await billingService.downloadQuotationPdf(q.id, q.quotationNumber);
     } catch (err) {
       setToast({ message: err instanceof ApiError ? err.message : 'Could not generate the quotation.', type: 'error' });
     } finally {
@@ -1085,9 +1087,9 @@ export default function NewSalePage() {
                 isLoading={quotationBusy}
                 disabled={recalculating}
                 onClick={generateQuotation}
-                title="Generate a printable quotation / sample bill — nothing is sold"
+                title="Generate a quotation / sample bill and download it as a PDF — nothing is sold"
               >
-                <FileText className="h-4 w-4 mr-1.5" /> Quotation
+                <FileText className="h-4 w-4 mr-1.5" /> Quotation PDF
               </Button>
               <Button
                 variant="outline"
@@ -1290,7 +1292,7 @@ function ProfitView({
     : loss ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200';
   const head = profit ? 'text-emerald-700' : loss ? 'text-red-700' : 'text-slate-700';
   const sub = profit ? 'text-emerald-600' : loss ? 'text-red-600' : 'text-slate-600';
-  const word = profit ? '🟢 Profit' : loss ? '🔴 Loss' : 'Break-even';
+  const word = profit ? 'Profit' : loss ? 'Loss' : 'Break-even';
   return (
     <div className={`rounded-xl p-3 text-center border ${box}`}>
       <p className={`text-[10px] font-bold uppercase tracking-wider ${head}`}>{label}</p>

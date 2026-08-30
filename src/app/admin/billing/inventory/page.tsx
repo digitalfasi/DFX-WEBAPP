@@ -75,6 +75,8 @@ export default function InventoryPage() {
   const [facetItems, setFacetItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [totalGoldWeightGrams, setTotalGoldWeightGrams] = useState(0);
+  // Global, filter-independent gold aggregate (unfiltered backend total).
+  const [globalGoldWeightGrams, setGlobalGoldWeightGrams] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -196,6 +198,9 @@ export default function InventoryPage() {
     try {
       const res = await billingService.listInventory({ limit: 100 });
       setFacetItems(res.items);
+      // Backend returns the full gold aggregate regardless of page size; an
+      // unfiltered call is the permanent store-wide total.
+      setGlobalGoldWeightGrams(res.totalGoldWeightGrams);
     } catch {
       // Non-fatal — selects just fall back to whatever is currently loaded.
     }
@@ -431,9 +436,12 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Gold-weight aggregate across ALL matching rows (server-side), not just
-       * the current page. */}
-      {!loading && !loadError && items.length > 0 && (
+      {/* Two gold-weight aggregates, both server-side across ALL matching rows
+       * (not the current page):
+       *  - GLOBAL: unfiltered inventory total (loadFacets, filter-independent).
+       *  - FILTERED: current-filter total (loadItems). Shown only when filters
+       *    are active so the two never read as duplicate. */}
+      {!loading && !loadError && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card className="p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
@@ -441,10 +449,24 @@ export default function InventoryPage() {
             </div>
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Gold in Inventory</p>
-              <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldWeightGrams)}</p>
-              <p className="text-[10px] text-slate-400 font-medium">{total} item{total === 1 ? '' : 's'} matching filters</p>
+              <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(globalGoldWeightGrams)}</p>
+              <p className="text-[10px] text-slate-400 font-medium">All items · unaffected by filters</p>
             </div>
           </Card>
+          {filtersActive && (
+            <Card className="p-4 flex items-center gap-4 border-gold/40 bg-gold/5">
+              <div className="w-10 h-10 rounded-xl bg-white border border-gold/30 flex items-center justify-center shrink-0">
+                <Scale className="h-5 w-5 text-gold" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filtered Gold</p>
+                <p className="text-lg font-display font-extrabold text-[#0B0E23]">{formatWeight(totalGoldWeightGrams)}</p>
+                <p className="text-[10px] text-slate-400 font-medium truncate">
+                  {[fPurity, fCategory, fSubcategory].filter(Boolean).join(' · ') || 'Current filters'} · {total} item{total === 1 ? '' : 's'}
+                </p>
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
